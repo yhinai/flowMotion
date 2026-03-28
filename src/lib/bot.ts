@@ -280,7 +280,7 @@ async function startSharedQuestions(chatId: number, payload: PreJobPayload) {
 async function dispatchJobFromShared(
   chatId: number,
   payload: PreJobPayload,
-  options: { narration: boolean; music: boolean; sfx: boolean; captions: boolean; thumbnail: boolean }
+  _options: { narration: boolean; music: boolean; sfx: boolean; captions: boolean; thumbnail: boolean }
 ) {
   await sendMessage(chatId, "Starting generation...");
 
@@ -290,14 +290,18 @@ async function dispatchJobFromShared(
   });
 
   setState(chatId, { step: "processing", jobId });
-  pollAndDeliver(chatId, jobId).catch((err) =>
+  pollAndDeliver(chatId, jobId, payload).catch((err) =>
     console.error("pollAndDeliver failed:", err)
   );
 }
 
 // ─── Job Processing & Status Updates ─────────────────────────────────────────
 
-async function pollAndDeliver(chatId: number, jobId: string) {
+async function pollAndDeliver(
+  chatId: number,
+  jobId: string,
+  preJobPayload?: PreJobPayload
+) {
   const start = Date.now();
   let lastStage = "";
 
@@ -321,8 +325,7 @@ async function pollAndDeliver(chatId: number, jobId: string) {
     }
 
     if (status.stage === "completed" && status.downloadUrl) {
-      await sendVideo(chatId, status.downloadUrl, "Here's your video!");
-      resetState(chatId);
+      await deliverVideo(chatId, jobId, status.downloadUrl, preJobPayload);
       return;
     }
 
@@ -338,6 +341,53 @@ async function pollAndDeliver(chatId: number, jobId: string) {
 
   await sendMessage(chatId, "Generation timed out. Please try again.");
   resetState(chatId);
+}
+
+const TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024; // 50 MB
+
+async function deliverVideo(
+  chatId: number,
+  jobId: string,
+  downloadUrl: string,
+  preJobPayload?: PreJobPayload
+) {
+  // Check file size via HEAD request
+  let canSendDirect = true;
+  try {
+    const head = await fetch(downloadUrl, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(10_000),
+    });
+    const contentLength = parseInt(head.headers.get("content-length") ?? "0", 10);
+    if (!head.ok || contentLength > TELEGRAM_FILE_LIMIT) {
+      canSendDirect = false;
+    }
+  } catch {
+    canSendDirect = false;
+  }
+
+  if (canSendDirect) {
+    await sendVideo(chatId, downloadUrl, "Here's your video!");
+  } else {
+    await sendMessage(chatId, `Download your video:\n${downloadUrl}`);
+  }
+
+  // Send post-delivery keyboard
+  setState(chatId, { step: "post_delivery", jobId, downloadUrl, preJobPayload });
+  await sendMessage(chatId, "What would you like to do next?", {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "\uD83D\uDD04 Regenerate", callback_data: "post:regenerate" },
+          { text: "\u270F\uFE0F Edit Settings", callback_data: "post:edit" },
+        ],
+        [
+          { text: "\uD83D\uDCE5 Download HD", callback_data: "post:download" },
+          { text: "\u2B50 Rate Quality", callback_data: "post:rate" },
+        ],
+      ],
+    },
+  });
 }
 
 // ─── Callback Query Handler ─────────────────────────────────────────────────
@@ -627,6 +677,72 @@ async function handleCallback(
       captions: state.captions,
       thumbnail,
     });
+    return;
+  }
+
+  // Post-delivery actions
+  if (data.startsWith("post:") && state.step === "post_delivery") {
+    const action = data.replace("post:", "");
+
+    if (action === "regenerate") {
+      await answerCallbackQuery(callbackQueryId, "Regenerating...");
+      if (state.preJobPayload) {
+        await sendMessage(chatId, "Regenerating your video...");
+        const jobId = createJob(state.preJobPayload.prompt, "720p", 1, {
+          pathType: state.preJobPayload.pathType,
+          pathConfig: state.preJobPayload.pathConfig,
+        });
+        setState(chatId, { step: "processing", jobId });
+        pollAndDeliver(chatId, jobId, state.preJobPayload).catch((err) =>
+          console.error("pollAndDeliver failed:", err)
+        );
+      } else {
+        await sendMessage(chatId, "Please start a new generation with /start.");
+        resetState(chatId);
+      }
+      return;
+    }
+
+    if (action === "edit") {
+      await answerCallbackQuery(callbackQueryId, "Starting over...");
+      setState(chatId, { step: "path_selection" });
+      await sendMessage(chatId, "Let's adjust your settings.");
+      await sendPathKeyboard(chatId);
+      return;
+    }
+
+    if (action === "download") {
+      await answerCallbackQuery(callbackQueryId);
+      await sendMessage(chatId, `Download HD:\n${state.downloadUrl}`);
+      return;
+    }
+
+    if (action === "rate") {
+      await answerCallbackQuery(callbackQueryId);
+      setState(chatId, { step: "rating", jobId: state.jobId });
+      await sendMessage(chatId, "Rate the quality of this video:", {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "1", callback_data: "rate:1" },
+              { text: "2", callback_data: "rate:2" },
+              { text: "3", callback_data: "rate:3" },
+              { text: "4", callback_data: "rate:4" },
+              { text: "5", callback_data: "rate:5" },
+            ],
+          ],
+        },
+      });
+      return;
+    }
+  }
+
+  // Rating handler
+  if (data.startsWith("rate:") && state.step === "rating") {
+    const rating = data.replace("rate:", "");
+    await answerCallbackQuery(callbackQueryId, `Rated: ${rating}/5`);
+    await sendMessage(chatId, `Thanks for rating ${rating}/5! Use /start to create another video.`);
+    resetState(chatId);
     return;
   }
 

@@ -329,7 +329,9 @@ export type ConversationStep =
   | { step: 'shared_captions'; preJobPayload: PreJobPayload; narration: boolean; music: boolean; sfx: boolean }
   | { step: 'shared_thumbnail'; preJobPayload: PreJobPayload; narration: boolean; music: boolean; sfx: boolean; captions: boolean }
   // Shared
-  | { step: 'processing'; jobId: string };
+  | { step: 'processing'; jobId: string }
+  | { step: 'post_delivery'; jobId: string; downloadUrl: string; preJobPayload?: PreJobPayload }
+  | { step: 'rating'; jobId: string };
 
 /** Pre-job payload carried through shared question steps */
 export interface PreJobPayload {
