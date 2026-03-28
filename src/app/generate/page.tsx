@@ -79,21 +79,21 @@ function GenerateContent() {
       <div className="flex min-h-screen flex-col animate-fade-in">
         <Navbar />
 
-        <div className="flex flex-1 flex-col px-4 py-6 sm:px-8">
+        <div className="flex flex-1 flex-col px-4 pt-20 pb-8 sm:px-8">
           {/* Video title and status */}
-          <div className="mb-6">
+          <div className="mb-8">
             <h1
-              className="text-headline-md mb-2"
-              style={{ fontFamily: "var(--font-serif, Georgia, serif)" }}
+              className="text-headline-lg mb-3"
+              style={{ fontFamily: "var(--font-display)" }}
             >
               {status.generatedScript.title}
             </h1>
             <span
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+              className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium"
               style={{
-                background: "rgba(125, 220, 142, 0.1)",
-                color: "#7ddc8e",
-                border: "1px solid rgba(125, 220, 142, 0.2)",
+                background: "rgba(125, 220, 142, 0.08)",
+                color: "var(--success)",
+                border: "1px solid rgba(125, 220, 142, 0.15)",
               }}
             >
               <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -107,18 +107,26 @@ function GenerateContent() {
             </span>
           </div>
 
-          <div className="flex flex-1 flex-col gap-8 lg:flex-row">
+          <div className="flex flex-1 flex-col gap-6 lg:flex-row">
             {/* Left: Video Preview */}
             <div className="flex-1 lg:flex-[2]">
-              <VideoPreview
-                script={status.generatedScript}
-                style={compositionStyle}
-              />
+              <div
+                className="rounded-2xl overflow-hidden"
+                style={{
+                  background: "var(--surface-lowest)",
+                  boxShadow: "0 8px 40px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(73, 68, 86, 0.1)",
+                }}
+              >
+                <VideoPreview
+                  script={status.generatedScript}
+                  style={compositionStyle}
+                />
+              </div>
               {status.downloadUrl && (
                 <div className="mt-6">
                   <a
                     href={status.downloadUrl}
-                    className="btn-primary inline-flex items-center gap-2 text-sm"
+                    className="btn-primary inline-flex items-center gap-2.5 text-sm"
                   >
                     <svg
                       className="h-4 w-4"
@@ -139,13 +147,17 @@ function GenerateContent() {
               )}
             </div>
 
-          {/* Right: Edit Panel + Live Chat */}
-          <div className="flex flex-col gap-6 lg:flex-1">
-            <div className="min-h-[300px] lg:h-[350px]">
-              <EditPanel
-                currentStyle={compositionStyle}
-                onStyleChange={handleStyleChange}
-              />
+            {/* Right: Edit Panel + Live Chat */}
+            <div className="flex flex-col gap-5 lg:flex-1 lg:max-w-md">
+              <div className="min-h-[300px] lg:h-[350px]">
+                <EditPanel
+                  currentStyle={compositionStyle}
+                  onStyleChange={handleStyleChange}
+                />
+              </div>
+              <div className="h-[300px] lg:h-[350px]">
+                <LiveChat />
+              </div>
             </div>
             <div className="h-[300px] lg:h-[350px]">
               <AiAssistant />
@@ -159,7 +171,13 @@ function GenerateContent() {
 
   // In-progress / error / loading states
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center px-4">
+      {/* Subtle orb background for generation page too */}
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <div className="orb orb-1" style={{ top: "10%", left: "20%", opacity: 0.5 }} />
+        <div className="orb orb-2" style={{ bottom: "10%", right: "10%", opacity: 0.4 }} />
+      </div>
+
       <button
         onClick={() => router.push("/")}
         className="btn-ghost absolute left-4 top-4 flex items-center gap-2 px-3 py-1.5 text-sm sm:left-8 sm:top-8"
@@ -181,14 +199,19 @@ function GenerateContent() {
       </button>
 
       <h1 className="text-headline-lg mb-2">Generating Your Video</h1>
-      <p className="text-label-md mb-8">Job: {jobId}</p>
+      <p
+        className="text-label-md mb-10"
+        style={{ color: "var(--outline)", fontVariantNumeric: "tabular-nums" }}
+      >
+        {jobId}
+      </p>
 
       {error && !status && (
         <div
-          className="w-full max-w-2xl rounded-lg px-4 py-3 text-sm"
+          className="w-full max-w-2xl rounded-xl px-5 py-4 text-sm mb-6"
           style={{
-            background: "rgba(147, 0, 10, 0.15)",
-            border: "1px solid rgba(255, 180, 171, 0.2)",
+            background: "rgba(147, 0, 10, 0.1)",
+            border: "1px solid rgba(255, 180, 171, 0.15)",
             color: "var(--error)",
           }}
         >
@@ -201,7 +224,7 @@ function GenerateContent() {
       {status?.stage === "failed" && (
         <button
           onClick={() => router.push("/")}
-          className="btn-primary mt-6 text-sm"
+          className="btn-primary mt-8 text-sm"
         >
           Try Again
         </button>

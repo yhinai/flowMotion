@@ -36,6 +36,7 @@ export default function PromptInput({ onSubmit, isLoading, externalValue }: Prom
   const [prompt, setPrompt] = useState("");
   const [resolution, setResolution] = useState("1080p");
   const [sceneCount, setSceneCount] = useState(5);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (externalValue !== undefined && externalValue !== "") {
@@ -58,30 +59,61 @@ export default function PromptInput({ onSubmit, isLoading, externalValue }: Prom
 
   return (
     <form onSubmit={handleSubmit} className="w-full space-y-5 font-sans">
-      <div className="relative">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe the video you want to create, or paste a YouTube/GitHub URL..."
-          disabled={isLoading}
-          rows={5}
-          className="w-full resize-none rounded-xl bg-[#0e0e13] px-5 py-4 text-[var(--on-surface)] placeholder-[var(--outline)] outline-none border border-[var(--outline-variant)]/20 transition-all duration-250 focus:border-[#cdbdff] focus:shadow-[0_0_0_3px_rgba(92,31,222,0.15),0_0_20px_rgba(92,31,222,0.3)] disabled:opacity-50 text-base leading-relaxed"
-        />
-        {detectedSource && (
-          <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-[var(--primary-container)]/20 border border-[var(--primary)]/30 px-2.5 py-1">
-            <div className="h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
-            <span className="text-[0.65rem] font-semibold text-[var(--primary)] uppercase tracking-wide">
-              {detectedSource.label} detected
-            </span>
-          </div>
-        )}
+      {/* Prompt textarea with animated glow border */}
+      <div
+        className="relative rounded-2xl transition-all duration-500"
+        style={{
+          padding: "1px",
+          background: isFocused
+            ? "linear-gradient(135deg, rgba(92, 31, 222, 0.5), rgba(156, 202, 255, 0.3), rgba(255, 171, 243, 0.3))"
+            : "rgba(73, 68, 86, 0.15)",
+        }}
+      >
+        <div
+          className="relative rounded-2xl"
+          style={{ background: "var(--surface-dim)" }}
+        >
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            placeholder="Describe the video you want to create, or paste a YouTube / GitHub URL..."
+            disabled={isLoading}
+            rows={4}
+            className="prompt-textarea w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-[var(--on-surface)] placeholder-[var(--outline)] outline-none disabled:opacity-50 text-base leading-relaxed"
+          />
+
+          {detectedSource && (
+            <div
+              className="absolute top-3.5 right-3.5 flex items-center gap-2 rounded-full px-3 py-1.5 animate-fade-in"
+              style={{
+                background: "rgba(125, 220, 142, 0.1)",
+                border: "1px solid rgba(125, 220, 142, 0.25)",
+              }}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ background: "var(--success)" }}
+              />
+              <span
+                className="text-xs font-medium"
+                style={{ color: "var(--success)" }}
+              >
+                {detectedSource.label}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
-        <div className="flex flex-col gap-1.5">
+      {/* Controls row */}
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:gap-6">
+        {/* Resolution */}
+        <div className="flex flex-col gap-2">
           <label
             htmlFor="resolution"
-            className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-[var(--outline)]"
+            className="text-label-md"
           >
             Resolution
           </label>
@@ -90,19 +122,33 @@ export default function PromptInput({ onSubmit, isLoading, externalValue }: Prom
             value={resolution}
             onChange={(e) => setResolution(e.target.value)}
             disabled={isLoading}
-            className="rounded-lg bg-[#1b1b20] px-3 py-2.5 text-sm text-[var(--on-surface)] outline-none border border-[var(--outline-variant)]/15 transition-colors focus:border-[#cdbdff] disabled:opacity-50 cursor-pointer"
+            className="rounded-xl px-4 py-2.5 text-sm text-[var(--on-surface)] outline-none transition-all duration-200 cursor-pointer disabled:opacity-50"
+            style={{
+              background: "var(--surface-container-low)",
+              border: "1px solid rgba(73, 68, 86, 0.15)",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "rgba(205, 189, 255, 0.4)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "rgba(73, 68, 86, 0.15)";
+            }}
           >
             <option value="720p">720p</option>
             <option value="1080p">1080p</option>
           </select>
         </div>
 
-        <div className="flex flex-1 flex-col gap-1.5">
+        {/* Scene count slider */}
+        <div className="flex flex-1 flex-col gap-2">
           <label
             htmlFor="sceneCount"
-            className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-[var(--outline)]"
+            className="text-label-md"
           >
-            Scenes: {sceneCount}
+            Scenes:{" "}
+            <span style={{ color: "var(--primary)", fontVariantNumeric: "tabular-nums" }}>
+              {sceneCount}
+            </span>
           </label>
           <input
             id="sceneCount"
@@ -116,19 +162,25 @@ export default function PromptInput({ onSubmit, isLoading, externalValue }: Prom
             aria-valuemin={3}
             aria-valuemax={8}
             aria-valuenow={sceneCount}
-            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#1b1b20] accent-[#cdbdff] disabled:opacity-50"
+            className="h-2 w-full cursor-pointer appearance-none rounded-full disabled:opacity-50"
+            style={{
+              background: `linear-gradient(to right, var(--primary-container) 0%, var(--primary-container) ${((sceneCount - 3) / 5) * 100}%, var(--surface-container-high) ${((sceneCount - 3) / 5) * 100}%, var(--surface-container-high) 100%)`,
+              accentColor: "#cdbdff",
+            }}
           />
         </div>
 
+        {/* Submit button */}
         <button
           type="submit"
           disabled={isLoading || !prompt.trim()}
-          className="rounded-lg bg-gradient-to-r from-[#5c1fde] to-[#cdbdff] px-8 py-3 font-semibold text-white transition-all duration-250 hover:shadow-[0_0_20px_rgba(92,31,222,0.4)] hover:-translate-y-px active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-none disabled:hover:translate-y-0 whitespace-nowrap"
+          className="btn-primary flex items-center justify-center gap-2.5 whitespace-nowrap text-sm"
+          style={{ padding: "0.75rem 2rem" }}
         >
           {isLoading ? (
-            <span className="flex items-center justify-center gap-2">
+            <>
               <svg
-                className="h-5 w-5 animate-spin"
+                className="h-4 w-4 animate-spin"
                 viewBox="0 0 24 24"
                 fill="none"
               >
@@ -147,9 +199,24 @@ export default function PromptInput({ onSubmit, isLoading, externalValue }: Prom
                 />
               </svg>
               Generating...
-            </span>
+            </>
           ) : (
-            "Generate Video"
+            <>
+              Generate Video
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
+                />
+              </svg>
+            </>
           )}
         </button>
       </div>

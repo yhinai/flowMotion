@@ -82,8 +82,8 @@ export default function AssetUploader({
 
   return (
     <div className="space-y-3">
-      <label className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-[var(--outline)]">
-        Assets (optional)
+      <label className="text-label-md">
+        Assets <span style={{ color: "var(--outline)", fontWeight: 400, textTransform: "none", letterSpacing: "normal", fontSize: "0.7rem" }}>(optional)</span>
       </label>
 
       {/* Drop zone */}
@@ -95,18 +95,25 @@ export default function AssetUploader({
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => !disabled && fileInputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-6 transition-all ${
-          isDragging
-            ? "border-[var(--primary)] bg-[var(--primary)]/5"
-            : "border-[var(--outline-variant)]/20 hover:border-[var(--outline-variant)]/40"
-        } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+        className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-5 transition-all duration-200 ${
+          disabled ? "opacity-40 cursor-not-allowed" : ""
+        }`}
+        style={{
+          borderColor: isDragging
+            ? "var(--primary)"
+            : "rgba(73, 68, 86, 0.15)",
+          background: isDragging
+            ? "rgba(92, 31, 222, 0.05)"
+            : "transparent",
+        }}
       >
         <svg
-          className="h-6 w-6 text-[var(--outline)]"
+          className="h-5 w-5"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
           strokeWidth={1.5}
+          style={{ color: "var(--outline)" }}
         >
           <path
             strokeLinecap="round"
@@ -114,7 +121,7 @@ export default function AssetUploader({
             d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
           />
         </svg>
-        <span className="text-sm text-[var(--outline)]">
+        <span className="text-xs" style={{ color: "var(--outline)" }}>
           {isUploading
             ? "Uploading..."
             : "Drop images here or click to upload"}
@@ -138,13 +145,29 @@ export default function AssetUploader({
           onKeyDown={(e) => e.key === "Enter" && addUrl()}
           placeholder="Or paste image URL..."
           disabled={disabled}
-          className="flex-1 rounded-lg bg-[var(--surface-container-low)] px-3 py-2 text-sm text-[var(--on-surface)] placeholder-[var(--outline)] outline-none border border-[var(--outline-variant)]/15 focus:border-[var(--primary)] disabled:opacity-50"
+          className="flex-1 rounded-xl px-3.5 py-2 text-sm outline-none transition-all duration-200 disabled:opacity-40"
+          style={{
+            background: "var(--surface-container-low)",
+            color: "var(--on-surface)",
+            border: "1px solid rgba(73, 68, 86, 0.15)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "rgba(205, 189, 255, 0.3)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "rgba(73, 68, 86, 0.15)";
+          }}
         />
         <button
           type="button"
           onClick={addUrl}
           disabled={disabled || !urlInput.trim()}
-          className="rounded-lg bg-[var(--surface-container-high)] px-3 py-2 text-sm text-[var(--on-surface-variant)] hover:bg-[var(--surface-bright)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+          style={{
+            background: "var(--surface-container-high)",
+            color: "var(--on-surface-variant)",
+            border: "1px solid rgba(73, 68, 86, 0.1)",
+          }}
         >
           Add
         </button>
@@ -156,7 +179,8 @@ export default function AssetUploader({
           {assets.map((url, index) => (
             <div
               key={index}
-              className="group relative h-16 w-16 overflow-hidden rounded-lg border border-[var(--outline-variant)]/15"
+              className="group relative h-14 w-14 overflow-hidden rounded-lg"
+              style={{ border: "1px solid rgba(73, 68, 86, 0.15)" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -167,10 +191,10 @@ export default function AssetUploader({
               <button
                 type="button"
                 onClick={() => removeAsset(index)}
-                className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
               >
                 <svg
-                  className="h-4 w-4 text-white"
+                  className="h-3.5 w-3.5 text-white"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"

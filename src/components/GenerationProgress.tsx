@@ -12,7 +12,7 @@ const PIPELINE_STEPS = [
   { key: "generating_clips", label: "Clips" },
   { key: "uploading_assets", label: "Assets" },
   { key: "composing_video", label: "Render" },
-  { key: "completed", label: "Complete" },
+  { key: "completed", label: "Done" },
 ] as const;
 
 const STAGE_ORDER: JobStage[] = [
@@ -42,7 +42,7 @@ function getStepState(
 
 function CheckIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
       <path
         fillRule="evenodd"
         d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -55,7 +55,7 @@ function CheckIcon() {
 function SpinnerIcon() {
   return (
     <svg
-      className="h-3.5 w-3.5 animate-spin"
+      className="h-3 w-3 animate-spin"
       viewBox="0 0 24 24"
       fill="none"
     >
@@ -87,66 +87,68 @@ function SceneCard({
 }) {
   const statusConfig: Record<
     string,
-    { dot: string; label: string; animate?: boolean; spinner?: boolean }
+    { color: string; label: string; spinner?: boolean }
   > = {
-    done: { dot: "bg-[#7ddc8e]", label: "Complete" },
-    generating: {
-      dot: "bg-[#cdbdff]",
-      label: "Generating...",
-      spinner: true,
-    },
-    uploading: { dot: "bg-[#9ccaff]", label: "Uploading..." },
-    pending: { dot: "bg-[#958da2]", label: "Pending" },
-    failed: { dot: "bg-[#ffb4ab]", label: "Failed" },
+    done: { color: "var(--success)", label: "Complete" },
+    generating: { color: "var(--primary)", label: "Generating...", spinner: true },
+    uploading: { color: "var(--secondary)", label: "Uploading..." },
+    pending: { color: "var(--outline)", label: "Pending" },
+    failed: { color: "var(--error)", label: "Failed" },
   };
 
   const config = statusConfig[scene.status] || statusConfig.pending;
 
   return (
     <div
-      className="rounded-xl bg-[#1b1b20] p-5 animate-fade-in-up transition-colors duration-200 hover:bg-[#22222a]"
-      style={{ animationDelay: `${index * 80}ms`, animationFillMode: "both" }}
+      className="rounded-xl p-4 animate-fade-in-up transition-all duration-200"
+      style={{
+        background: "var(--surface-container-low)",
+        border: "1px solid rgba(73, 68, 86, 0.1)",
+        animationDelay: `${index * 80}ms`,
+        animationFillMode: "both",
+      }}
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <span className="text-xs font-medium uppercase tracking-wider text-[#958da2]">
-            Scene {scene.scene_number}
-          </span>
-        </div>
+      <div className="flex items-center justify-between mb-1">
+        <span
+          className="text-xs font-medium uppercase tracking-wider"
+          style={{ color: "var(--outline)" }}
+        >
+          Scene {scene.scene_number}
+        </span>
         <div className="flex items-center gap-2">
           {config.spinner ? (
-            <span className="text-[#cdbdff]">
+            <span style={{ color: config.color }}>
               <SpinnerIcon />
             </span>
           ) : (
             <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${config.dot}`}
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ background: config.color }}
             />
           )}
           <span
-            className={`text-xs font-medium ${
-              scene.status === "done"
-                ? "text-[#7ddc8e]"
-                : scene.status === "generating"
-                  ? "text-[#cdbdff]"
-                  : scene.status === "uploading"
-                    ? "text-[#9ccaff]"
-                    : scene.status === "failed"
-                      ? "text-[#ffb4ab]"
-                      : "text-[#958da2]"
-            }`}
+            className="text-xs font-medium"
+            style={{ color: config.color }}
           >
             {config.label}
           </span>
         </div>
       </div>
       {sceneTitle && (
-        <p className="mt-2 text-xs text-[#cbc3d9] truncate opacity-70">
+        <p
+          className="text-xs truncate mt-1"
+          style={{ color: "var(--on-surface-variant)", opacity: 0.7 }}
+        >
           {sceneTitle}
         </p>
       )}
       {scene.status === "failed" && scene.error && (
-        <p className="mt-3 text-xs text-[#ffb4ab] truncate">{scene.error}</p>
+        <p
+          className="mt-2 text-xs truncate"
+          style={{ color: "var(--error)" }}
+        >
+          {scene.error}
+        </p>
       )}
     </div>
   );
@@ -167,46 +169,63 @@ export default function GenerationProgress({
           return (
             <div key={step.key} className="flex flex-1 items-center">
               <div className="flex flex-col items-center gap-2">
-                {/* Step dot */}
                 <div
-                  className={`relative flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold transition-all duration-300 ${
-                    state === "completed"
-                      ? "bg-[#5c1fde] text-[#e4e1e9]"
-                      : state === "active"
-                        ? "bg-[#cdbdff] text-[#370096]"
-                        : "bg-[#2a292f] text-[#958da2]"
-                  }`}
+                  className="relative flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold transition-all duration-300"
+                  style={{
+                    background:
+                      state === "completed"
+                        ? "var(--primary-container)"
+                        : state === "active"
+                        ? "var(--primary)"
+                        : "var(--surface-container-high)",
+                    color:
+                      state === "completed"
+                        ? "var(--on-surface)"
+                        : state === "active"
+                        ? "var(--on-primary)"
+                        : "var(--outline)",
+                    boxShadow:
+                      state === "active"
+                        ? "0 0 20px rgba(92, 31, 222, 0.4)"
+                        : "none",
+                  }}
                 >
                   {state === "active" && (
-                    <span className="absolute inset-0 rounded-full bg-[#cdbdff] opacity-40 animate-pulse-glow" />
+                    <span
+                      className="absolute inset-0 rounded-full animate-pulse-glow"
+                      style={{ background: "var(--primary)", opacity: 0.3 }}
+                    />
                   )}
                   <span className="relative z-10">
                     {state === "completed" ? <CheckIcon /> : i + 1}
                   </span>
                 </div>
-                {/* Step label */}
                 <span
-                  className={`text-[11px] font-medium tracking-wide ${
-                    state === "active"
-                      ? "text-[#cdbdff]"
-                      : state === "completed"
-                        ? "text-[#e4e1e9]"
-                        : "text-[#958da2]"
-                  }`}
+                  className="text-[11px] font-medium tracking-wide"
+                  style={{
+                    color:
+                      state === "active"
+                        ? "var(--primary)"
+                        : state === "completed"
+                        ? "var(--on-surface)"
+                        : "var(--outline)",
+                  }}
                 >
                   {step.label}
                 </span>
               </div>
-              {/* Connecting line */}
               {i < PIPELINE_STEPS.length - 1 && (
                 <div className="relative mx-1 mt-[-12px] h-[2px] flex-1 self-start top-[18px]">
-                  <div className="absolute inset-0 bg-[#2a292f] rounded-full" />
                   <div
-                    className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-                      state === "completed"
-                        ? "w-full bg-[#5c1fde]"
-                        : "w-0"
-                    }`}
+                    className="absolute inset-0 rounded-full"
+                    style={{ background: "var(--surface-container-high)" }}
+                  />
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+                    style={{
+                      width: state === "completed" ? "100%" : "0%",
+                      background: "var(--primary-container)",
+                    }}
                   />
                 </div>
               )}
@@ -217,21 +236,24 @@ export default function GenerationProgress({
 
       {/* Progress Bar */}
       {!isCompleted && !isFailed && (
-        <div className="space-y-2">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#2a292f]">
+        <div className="space-y-3">
+          <div
+            className="h-1.5 w-full overflow-hidden rounded-full"
+            style={{ background: "var(--surface-container-high)" }}
+          >
             <div
               className="relative h-full rounded-full transition-all duration-700 ease-out"
               style={{
                 width: `${status.progress}%`,
                 background:
-                  "linear-gradient(90deg, #5c1fde 0%, #cdbdff 60%, #9ccaff 100%)",
+                  "linear-gradient(90deg, var(--primary-container) 0%, var(--primary) 60%, var(--secondary) 100%)",
               }}
             >
               <div
-                className="absolute inset-0 rounded-full animate-pulse"
+                className="absolute inset-0 rounded-full"
                 style={{
                   background:
-                    "linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)",
+                    "linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)",
                   backgroundSize: "200% 100%",
                   animation: "shimmer 2s ease-in-out infinite",
                 }}
@@ -239,8 +261,13 @@ export default function GenerationProgress({
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-[#cbc3d9]">{status.message}</p>
-            <span className="text-xs font-medium tracking-wider text-[#958da2]">
+            <p className="text-sm" style={{ color: "var(--on-surface-variant)" }}>
+              {status.message}
+            </p>
+            <span
+              className="text-xs font-medium tracking-wider"
+              style={{ color: "var(--outline)", fontVariantNumeric: "tabular-nums" }}
+            >
               {status.progress}%
             </span>
           </div>
@@ -250,7 +277,10 @@ export default function GenerationProgress({
       {/* Scene Cards Grid */}
       {status.scenes && status.scenes.length > 0 && !isCompleted && (
         <div className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-[#958da2]">
+          <h3
+            className="text-label-md"
+            style={{ letterSpacing: "0.15em" }}
+          >
             Scenes
           </h3>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -268,30 +298,41 @@ export default function GenerationProgress({
 
       {/* Failed State */}
       {isFailed && status.error && (
-        <div className="rounded-xl bg-[#93000a]/20 p-5 ring-1 ring-inset ring-[#ffb4ab]/20">
-          <p className="text-sm font-semibold text-[#ffb4ab]">
+        <div
+          className="rounded-xl p-5"
+          style={{
+            background: "rgba(147, 0, 10, 0.1)",
+            border: "1px solid rgba(255, 180, 171, 0.15)",
+          }}
+        >
+          <p
+            className="text-sm font-semibold"
+            style={{ color: "var(--error)" }}
+          >
             Generation Failed
           </p>
-          <div className="mt-3 space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-[#ffb4ab]/60">
-              What went wrong
-            </p>
-            <p className="text-sm text-[#ffb4ab]/80">{status.error}</p>
-          </div>
+          <p
+            className="mt-2 text-sm"
+            style={{ color: "var(--error)", opacity: 0.8 }}
+          >
+            {status.error}
+          </p>
         </div>
       )}
 
       {/* Completed State */}
       {isCompleted && (
-        <div className="space-y-5 animate-fade-in-up">
-          <div className="text-center space-y-2">
+        <div className="space-y-6 animate-fade-in-up">
+          <div className="text-center space-y-3">
             <div
-              className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#5c1fde]"
+              className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
               style={{
+                background: "linear-gradient(135deg, var(--primary-container), var(--primary))",
                 animation: "scale-spring 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both",
+                boxShadow: "0 4px 20px rgba(92, 31, 222, 0.3)",
               }}
             >
-              <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+              <svg className="h-6 w-6 text-white" viewBox="0 0 20 20" fill="currentColor">
                 <path
                   fillRule="evenodd"
                   d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -299,27 +340,29 @@ export default function GenerationProgress({
                 />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold tracking-tight text-[#e4e1e9]">
+            <h2
+              className="text-xl font-semibold tracking-tight"
+              style={{ color: "var(--on-surface)" }}
+            >
               Video Ready
             </h2>
-            <p className="text-sm text-[#cbc3d9]">
+            <p className="text-sm" style={{ color: "var(--on-surface-variant)" }}>
               Your video has been generated successfully.
             </p>
           </div>
 
           {status.previewUrl && (
             <div
-              className="rounded-xl overflow-hidden"
+              className="rounded-2xl overflow-hidden"
               style={{
-                background: "#0e0e13",
-                boxShadow: "0 4px 40px rgba(79, 0, 208, 0.08), 0 2px 20px rgba(0, 0, 0, 0.4)",
-                border: "1px solid rgba(73, 68, 86, 0.2)",
+                background: "var(--surface-lowest)",
+                boxShadow: "0 8px 40px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(73, 68, 86, 0.1)",
               }}
             >
               <video
                 src={status.previewUrl}
                 controls
-                className="w-full rounded-lg"
+                className="w-full"
               />
             </div>
           )}
@@ -328,7 +371,7 @@ export default function GenerationProgress({
             <div className="flex justify-center">
               <a
                 href={status.downloadUrl || status.previewUrl}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#5c1fde] px-8 py-3 text-sm font-semibold text-[#e4e1e9] transition-all hover:bg-[#7640f0] hover:shadow-[0_0_24px_rgba(92,31,222,0.4)]"
+                className="btn-primary inline-flex items-center gap-2.5 text-sm"
               >
                 <svg
                   className="h-4 w-4"

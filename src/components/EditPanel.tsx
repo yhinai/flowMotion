@@ -84,19 +84,49 @@ export default function EditPanel({
   };
 
   return (
-    <div className="glass-card flex h-full flex-col animate-fade-in">
+    <div
+      className="glass-card flex h-full flex-col animate-fade-in"
+      style={{ borderRadius: "var(--radius-xl)" }}
+    >
       {/* Header */}
       <div
         className="px-5 py-4"
         style={{ borderBottom: "1px solid rgba(73, 68, 86, 0.15)" }}
       >
-        <h2 className="text-headline-md">Style Editor</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-headline-md" style={{ fontSize: "1.25rem" }}>Style Editor</h2>
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              className="rounded-lg px-2.5 py-1 text-xs font-medium transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{
+                color: "var(--on-surface-variant)",
+                background: "var(--surface-container)",
+                border: "1px solid rgba(73, 68, 86, 0.1)",
+              }}
+            >
+              Undo
+            </button>
+            <button
+              onClick={handleReset}
+              className="rounded-lg px-2.5 py-1 text-xs font-medium transition-all duration-200"
+              style={{
+                color: "var(--outline)",
+                background: "transparent",
+                border: "1px solid rgba(73, 68, 86, 0.1)",
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* History */}
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {history.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
+          <div className="flex h-full flex-col items-center justify-center gap-5">
             <p
               className="text-center text-sm"
               style={{ color: "var(--outline)" }}
@@ -104,21 +134,23 @@ export default function EditPanel({
               Describe how you&apos;d like to edit the video style
             </p>
             <div className="flex flex-wrap justify-center gap-2">
-              {["Make title bigger", "Add dark overlay", "Hide subtitles", "Change font to serif"].map((suggestion) => (
+              {["Make title bigger", "Dark overlay", "Hide subtitles", "Serif font"].map((suggestion) => (
                 <button
                   key={suggestion}
                   onClick={() => setInstruction(suggestion)}
-                  className="rounded-full px-3 py-1.5 text-xs transition-colors"
+                  className="rounded-full px-3 py-1.5 text-xs transition-all duration-200"
                   style={{
-                    background: "rgba(205, 189, 255, 0.08)",
-                    border: "1px solid rgba(205, 189, 255, 0.15)",
+                    background: "rgba(92, 31, 222, 0.08)",
+                    border: "1px solid rgba(205, 189, 255, 0.12)",
                     color: "var(--primary)",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(205, 189, 255, 0.15)";
+                    e.currentTarget.style.background = "rgba(92, 31, 222, 0.15)";
+                    e.currentTarget.style.borderColor = "rgba(205, 189, 255, 0.25)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(205, 189, 255, 0.08)";
+                    e.currentTarget.style.background = "rgba(92, 31, 222, 0.08)";
+                    e.currentTarget.style.borderColor = "rgba(205, 189, 255, 0.12)";
                   }}
                 >
                   {suggestion}
@@ -133,64 +165,45 @@ export default function EditPanel({
             className="animate-fade-in space-y-2"
             style={{ animationDelay: `${i * 0.05}s` }}
           >
-            {/* User bubble */}
-            <span
-              className="text-label-md block px-1 mb-1"
-              style={{ fontSize: "0.5625rem", color: "var(--outline)", letterSpacing: "0.08em" }}
-            >
-              YOU
-            </span>
-            <div
-              className="rounded-lg px-3.5 py-2.5 text-sm"
-              style={{
-                background: "var(--surface-container-high)",
-                color: "var(--on-surface)",
-              }}
-            >
-              {entry.instruction}
+            {/* User message */}
+            <div className="flex justify-end">
+              <div
+                className="rounded-xl px-3.5 py-2.5 text-sm max-w-[85%]"
+                style={{
+                  background: "rgba(92, 31, 222, 0.15)",
+                  color: "var(--primary-fixed)",
+                  border: "1px solid rgba(205, 189, 255, 0.15)",
+                }}
+              >
+                {entry.instruction}
+              </div>
             </div>
-            {/* AI explanation */}
-            <span
-              className="text-label-md block px-1 mt-2 mb-1"
-              style={{ fontSize: "0.5625rem", color: "var(--outline)", letterSpacing: "0.08em" }}
-            >
-              AI
-            </span>
-            <p
-              className="px-1 text-xs"
-              style={{ color: "var(--on-surface-variant)" }}
-            >
-              {entry.explanation}
-            </p>
-            {/* Timestamp */}
-            <span className="text-label-md block px-1" style={{ fontSize: "0.625rem" }}>
-              {formatTime(entry.timestamp)}
-            </span>
+            {/* AI response */}
+            <div className="flex justify-start">
+              <div
+                className="rounded-xl px-3.5 py-2.5 text-sm max-w-[85%]"
+                style={{
+                  background: "var(--surface-container)",
+                  color: "var(--on-surface-variant)",
+                  border: "1px solid rgba(73, 68, 86, 0.1)",
+                }}
+              >
+                {entry.explanation}
+                <span
+                  className="block mt-1 text-[0.625rem]"
+                  style={{ color: "var(--outline)" }}
+                >
+                  {formatTime(entry.timestamp)}
+                </span>
+              </div>
+            </div>
           </div>
         ))}
         {isLoading && (
-          <div className="flex items-center gap-1 px-1 py-2">
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{
-                background: "var(--primary)",
-                animation: "pulse 1.4s ease-in-out infinite",
-              }}
-            />
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{
-                background: "var(--primary)",
-                animation: "pulse 1.4s ease-in-out 0.2s infinite",
-              }}
-            />
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{
-                background: "var(--primary)",
-                animation: "pulse 1.4s ease-in-out 0.4s infinite",
-              }}
-            />
+          <div className="flex items-center gap-1.5 px-1 py-2">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
           </div>
         )}
         <div ref={historyEndRef} />
@@ -198,31 +211,23 @@ export default function EditPanel({
 
       {/* Error */}
       {error && (
-        <div className="mx-5 mb-2 text-xs" style={{ color: "#ffb4ab" }}>
+        <div
+          className="mx-5 mb-2 text-xs rounded-lg px-3 py-2"
+          style={{
+            color: "var(--error)",
+            background: "rgba(147, 0, 10, 0.1)",
+            border: "1px solid rgba(255, 180, 171, 0.15)",
+          }}
+        >
           {error}
         </div>
       )}
 
-      {/* Bottom action bar */}
+      {/* Input bar */}
       <div
-        className="px-5 py-4"
+        className="px-4 py-3"
         style={{ borderTop: "1px solid rgba(73, 68, 86, 0.15)" }}
       >
-        {/* Undo / Reset */}
-        <div className="mb-3 flex gap-2">
-          <button
-            onClick={handleUndo}
-            disabled={history.length === 0}
-            className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Undo
-          </button>
-          <button onClick={handleReset} className="btn-ghost px-3 py-1.5 text-xs">
-            Reset
-          </button>
-        </div>
-
-        {/* Input row */}
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -231,30 +236,37 @@ export default function EditPanel({
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder="Make the title bigger and blue..."
             disabled={isLoading}
-            className="stage-input flex-1 disabled:opacity-50"
+            className="flex-1 text-sm px-3.5 py-2 rounded-xl outline-none transition-all duration-200 disabled:opacity-50"
             style={{
-              padding: "0.625rem 1rem",
-              fontSize: "0.875rem",
-              resize: "none",
+              background: "var(--surface-container-low)",
+              color: "var(--on-surface)",
+              border: "1px solid rgba(73, 68, 86, 0.15)",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "rgba(205, 189, 255, 0.3)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "rgba(73, 68, 86, 0.15)";
             }}
           />
           <button
             onClick={handleSubmit}
             disabled={!instruction.trim() || isLoading}
             aria-label={isLoading ? "Sending edit instruction" : "Send edit instruction"}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
-              background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
-              transition: "box-shadow var(--transition-base)",
+              background: instruction.trim()
+                ? "linear-gradient(135deg, var(--primary-container), var(--primary))"
+                : "var(--surface-container)",
+              color: instruction.trim() ? "white" : "var(--outline)",
+              border: instruction.trim()
+                ? "none"
+                : "1px solid rgba(73, 68, 86, 0.15)",
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.boxShadow = "var(--shadow-glow)")
-            }
-            onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}
           >
             {isLoading ? (
               <svg
-                className="h-4 w-4 animate-spin text-white"
+                className="h-4 w-4 animate-spin"
                 viewBox="0 0 24 24"
                 fill="none"
               >
@@ -274,7 +286,7 @@ export default function EditPanel({
               </svg>
             ) : (
               <svg
-                className="h-4 w-4 text-white"
+                className="h-4 w-4"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"

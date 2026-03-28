@@ -34,7 +34,6 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Clean up on unmount
   useEffect(() => {
     return () => {
       if (eventSourceRef.current) {
@@ -146,7 +145,6 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
 
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
-      // Stop recording
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
       return;
@@ -197,7 +195,7 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
         reader.readAsDataURL(audioBlob);
       };
 
-      mediaRecorder.start(250); // Collect chunks every 250ms
+      mediaRecorder.start(250);
       setIsRecording(true);
     } catch {
       addMessage(
@@ -215,36 +213,65 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-black/30 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+    <div
+      className="glass-card flex flex-col h-full overflow-hidden"
+      style={{ borderRadius: "var(--radius-xl)" }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-        <div className="flex items-center gap-2">
+      <div
+        className="flex items-center justify-between px-5 py-3.5"
+        style={{ borderBottom: "1px solid rgba(73, 68, 86, 0.15)" }}
+      >
+        <div className="flex items-center gap-2.5">
           <div
-            className={`w-2 h-2 rounded-full ${
-              isConnected
-                ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]"
-                : "bg-white/30"
-            }`}
+            className="h-2 w-2 rounded-full transition-colors"
+            style={{
+              background: isConnected ? "var(--success)" : "var(--outline)",
+              boxShadow: isConnected
+                ? "0 0 6px rgba(125, 220, 142, 0.5)"
+                : "none",
+            }}
           />
-          <span className="text-sm font-medium text-white/80">
-            AI Editor {isConnected ? "Online" : "Offline"}
+          <span
+            className="text-sm font-medium"
+            style={{ color: "var(--on-surface-variant)" }}
+          >
+            Live Editor
           </span>
         </div>
         <button
           onClick={isConnected ? disconnect : connect}
           disabled={isConnecting}
-          className={`px-3 py-1 text-xs rounded-full transition-all ${
-            isConnected
-              ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
-              : "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30"
-          } disabled:opacity-50`}
+          className="rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 disabled:opacity-50"
+          style={{
+            background: isConnected
+              ? "rgba(255, 180, 171, 0.1)"
+              : "rgba(125, 220, 142, 0.1)",
+            color: isConnected ? "var(--error)" : "var(--success)",
+            border: `1px solid ${
+              isConnected
+                ? "rgba(255, 180, 171, 0.2)"
+                : "rgba(125, 220, 142, 0.2)"
+            }`,
+          }}
         >
-          {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
+          {isConnecting
+            ? "Connecting..."
+            : isConnected
+            ? "Disconnect"
+            : "Connect"}
         </button>
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+        {messages.length === 0 && !isConnected && (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm" style={{ color: "var(--outline)" }}>
+              Connect to start a live editing session
+            </p>
+          </div>
+        )}
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -253,13 +280,28 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
             }`}
           >
             <div
-              className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                msg.role === "user"
-                  ? "bg-blue-500/20 text-blue-100 border border-blue-500/20"
-                  : msg.role === "tool"
-                  ? "bg-amber-500/10 text-amber-200 border border-amber-500/20"
-                  : "bg-white/5 text-white/90 border border-white/5"
-              }`}
+              className="max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm"
+              style={{
+                background:
+                  msg.role === "user"
+                    ? "rgba(92, 31, 222, 0.15)"
+                    : msg.role === "tool"
+                    ? "rgba(125, 220, 142, 0.08)"
+                    : "var(--surface-container)",
+                color:
+                  msg.role === "user"
+                    ? "var(--primary-fixed)"
+                    : msg.role === "tool"
+                    ? "var(--success)"
+                    : "var(--on-surface-variant)",
+                border: `1px solid ${
+                  msg.role === "user"
+                    ? "rgba(205, 189, 255, 0.15)"
+                    : msg.role === "tool"
+                    ? "rgba(125, 220, 142, 0.15)"
+                    : "rgba(73, 68, 86, 0.1)"
+                }`,
+              }}
             >
               {msg.content}
             </div>
@@ -269,22 +311,32 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-white/10">
+      <div
+        className="p-3"
+        style={{ borderTop: "1px solid rgba(73, 68, 86, 0.15)" }}
+      >
         <div className="flex items-center gap-2">
           <button
             onClick={toggleRecording}
             disabled={!isConnected}
-            className={`p-2 rounded-full transition-all ${
-              isRecording
-                ? "bg-red-500/30 text-red-300 border border-red-500/40 animate-pulse"
-                : "bg-white/5 text-white/50 hover:text-white/80 hover:bg-white/10 border border-white/10"
-            } disabled:opacity-30 disabled:cursor-not-allowed`}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{
+              background: isRecording
+                ? "rgba(255, 180, 171, 0.15)"
+                : "var(--surface-container)",
+              color: isRecording ? "var(--error)" : "var(--outline)",
+              border: `1px solid ${
+                isRecording
+                  ? "rgba(255, 180, 171, 0.3)"
+                  : "rgba(73, 68, 86, 0.15)"
+              }`,
+              animation: isRecording ? "pulse-glow 2s ease-in-out infinite" : "none",
+            }}
             title={isRecording ? "Stop recording" : "Talk to AI"}
           >
             <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -308,18 +360,37 @@ export default function LiveChat({ onToolCall }: LiveChatProps) {
                 : "Connect to start chatting"
             }
             disabled={!isConnected}
-            className="flex-1 bg-white/5 text-white placeholder-white/30 text-sm px-3 py-2 rounded-xl border border-white/10 outline-none focus:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex-1 text-sm px-3.5 py-2 rounded-xl outline-none transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{
+              background: "var(--surface-container-low)",
+              color: "var(--on-surface)",
+              border: "1px solid rgba(73, 68, 86, 0.15)",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "rgba(205, 189, 255, 0.3)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "rgba(73, 68, 86, 0.15)";
+            }}
           />
           <button
             onClick={sendMessage}
             disabled={!isConnected || !input.trim()}
-            className="p-2 rounded-full bg-white/5 text-white/50 hover:text-white/80 hover:bg-white/10 border border-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{
+              background: input.trim()
+                ? "linear-gradient(135deg, var(--primary-container), var(--primary))"
+                : "var(--surface-container)",
+              color: input.trim() ? "white" : "var(--outline)",
+              border: input.trim()
+                ? "none"
+                : "1px solid rgba(73, 68, 86, 0.15)",
+            }}
             title="Send message"
           >
             <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
