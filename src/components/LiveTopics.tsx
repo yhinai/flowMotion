@@ -26,10 +26,10 @@ const TYPE_ICON: Record<LiveTopic["type"], React.ReactNode> = {
   ),
 };
 
-const TYPE_COLOR: Record<LiveTopic["type"], { text: string; bg: string }> = {
-  news: { text: "var(--secondary)", bg: "rgba(156, 202, 255, 0.08)" },
-  crypto: { text: "var(--success)", bg: "rgba(125, 220, 142, 0.08)" },
-  weather: { text: "#ffcc66", bg: "rgba(255, 204, 102, 0.08)" },
+const TYPE_COLOR: Record<LiveTopic["type"], string> = {
+  news: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  crypto: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  weather: "text-amber-400 bg-amber-500/10 border-amber-500/20",
 };
 
 export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps) {
@@ -37,7 +37,6 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
   const [nexlaConnected, setNexlaConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
 
   const fetchTopics = useCallback(async () => {
     try {
@@ -55,13 +54,12 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
   }, []);
 
   useEffect(() => {
-    setMounted(true);
     fetchTopics();
+    // Refresh every 5 minutes
     const interval = setInterval(fetchTopics, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchTopics]);
 
-  if (!mounted) return null;
   if (!loading && topics.length === 0) return null;
 
   return (
@@ -69,28 +67,18 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div
-            className="w-1.5 h-1.5 rounded-full"
-            style={{
-              background: nexlaConnected ? "var(--success)" : "var(--outline)",
-              boxShadow: nexlaConnected ? "0 0 6px rgba(125, 220, 142, 0.5)" : "none",
-            }}
-          />
-          <span className="text-label-md" style={{ color: "var(--outline)" }}>
+          <div className={`w-1.5 h-1.5 rounded-full ${nexlaConnected ? "bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.6)]" : "bg-white/30"}`} />
+          <span className="text-label-md text-white/60">
             Live Topics
           </span>
-          <span
-            className="text-[10px] font-mono px-1.5 py-0.5 neu-inset-sm"
-            style={{ color: "var(--outline)", borderRadius: "var(--radius-sm)", fontSize: "0.6rem" }}
-          >
+          <span className="text-[10px] font-mono text-white/25 border border-white/10 rounded px-1.5 py-0.5">
             {nexlaConnected ? "via Nexla" : "live data"}
           </span>
         </div>
         <button
           onClick={fetchTopics}
           disabled={loading || disabled}
-          className="transition-colors disabled:opacity-30"
-          style={{ color: "var(--outline)" }}
+          className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-30"
           title="Refresh topics"
         >
           <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -103,48 +91,38 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
       {loading ? (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="skeleton h-14 w-full" style={{ borderRadius: "var(--radius-lg)" }} />
+            <div key={i} className="skeleton h-14 w-full rounded-xl" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-          {topics.map((topic) => {
-            const colors = TYPE_COLOR[topic.type];
-            return (
-              <button
-                key={topic.id}
-                onClick={() => onSelectTopic(topic.suggestedPrompt)}
-                disabled={disabled}
-                className="neu-raised-sm group text-left px-3 py-2.5 transition-all duration-200 disabled:opacity-35 disabled:cursor-not-allowed"
-                style={{ borderRadius: "var(--radius-lg)" }}
-              >
-                <div className="flex items-start gap-2">
-                  <span
-                    className="mt-0.5 flex-shrink-0 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{ color: colors.text, background: colors.bg }}
-                  >
-                    {TYPE_ICON[topic.type]}
-                  </span>
-                  <div className="min-w-0">
-                    <p
-                      className="text-xs font-medium leading-snug line-clamp-2 transition-colors"
-                      style={{ color: "var(--on-surface-variant)" }}
-                    >
-                      {topic.headline}
-                    </p>
-                    <p className="mt-0.5 text-[10px] truncate" style={{ color: "var(--outline)" }}>
-                      {topic.context}
-                    </p>
-                  </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {topics.map((topic) => (
+            <button
+              key={topic.id}
+              onClick={() => onSelectTopic(topic.suggestedPrompt)}
+              disabled={disabled}
+              className="group text-left rounded-xl border border-white/8 bg-white/3 px-3 py-2.5 transition-all duration-150 hover:bg-white/6 hover:border-white/15 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-start gap-2">
+                <span className={`mt-0.5 flex-shrink-0 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium border ${TYPE_COLOR[topic.type]}`}>
+                  {TYPE_ICON[topic.type]}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-white/80 group-hover:text-white/95 leading-snug line-clamp-2 transition-colors">
+                    {topic.headline}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-white/35 truncate">
+                    {topic.context}
+                  </p>
                 </div>
-              </button>
-            );
-          })}
+              </div>
+            </button>
+          ))}
         </div>
       )}
 
       {lastFetch && !loading && (
-        <p className="mt-2 text-[10px] text-right" style={{ color: "var(--outline)" }}>
+        <p className="mt-2 text-[10px] text-white/20 text-right">
           Updated {new Date(lastFetch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </p>
       )}

@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { prompt, templateId: rawTemplateId, sourceType, sourceUrl, assets, enableVeo, engine, resolution, sceneCount } = parsed.data;
+    const { prompt, templateId: rawTemplateId, sourceType, sourceUrl, assets, enableVeo, engine, resolution, sceneCount, pathType, pathConfig } = parsed.data;
     const templateId = rawTemplateId === "custom" ? undefined : rawTemplateId;
 
     let jobId: string;
@@ -35,6 +35,8 @@ export async function POST(request: Request) {
         assets,
         enableVeo,
         engine,
+        pathType: pathType as import("@/lib/types").PathJobType | undefined,
+        pathConfig: pathConfig as import("@/lib/types").PathConfig | undefined,
       });
     }
 

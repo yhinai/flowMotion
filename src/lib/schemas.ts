@@ -99,7 +99,7 @@ export const BrandStoryInputSchema = z.object({
 });
 
 export const GenerateRequestSchema = z.object({
-  prompt: z.string().min(10).max(2000),
+  prompt: z.string().min(1).max(2000),
   templateId: z.enum(["custom", "product-launch", "explainer", "social-promo", "brand-story", "editorial"]).optional().default("product-launch"),
   sourceType: z.enum(["prompt", "youtube", "github"]).optional().default("prompt"),
   sourceUrl: z.string().optional(),
@@ -107,7 +107,9 @@ export const GenerateRequestSchema = z.object({
   enableVeo: z.boolean().optional().default(false),
   engine: z.enum(["veo3", "nano-banan", "auto"]).optional().default("auto"),
   resolution: z.enum(["720p", "1080p"]).optional().default("720p"),
-  sceneCount: z.number().min(3).max(8).optional().default(5),
+  sceneCount: z.number().min(1).max(8).optional().default(5),
+  pathType: z.enum(["path-a", "path-b", "path-c"]).optional(),
+  pathConfig: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const CompositionStyleSchema = z.object({
