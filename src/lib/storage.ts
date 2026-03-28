@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "fs/promises";
 import path from "path";
+import { spacesEnabled, uploadToSpaces, deleteFromSpaces } from "./spaces";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -53,6 +54,11 @@ export async function uploadFile(
   localPath: string,
   key: string
 ): Promise<string> {
+  // Prefer DigitalOcean Spaces when configured — faster CDN delivery
+  if (spacesEnabled()) {
+    return uploadToSpaces(localPath, key);
+  }
+
   const ext = path.extname(localPath).toLowerCase();
   const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
@@ -73,6 +79,10 @@ export async function uploadFile(
 }
 
 export async function deleteFile(key: string): Promise<void> {
+  if (spacesEnabled()) {
+    return deleteFromSpaces(key);
+  }
+
   const { error } = await getSupabaseClient()
     .storage.from(getBucketName())
     .remove([key]);

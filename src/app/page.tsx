@@ -241,6 +241,12 @@ export default function Home() {
           <span className="text-[var(--on-surface-variant)]">Veo</span>
           {" \u00B7 "}
           <span className="text-[var(--on-surface-variant)]">Remotion</span>
+          {" \u00B7 "}
+          <span className="text-[var(--on-surface-variant)]">DigitalOcean Spaces</span>
+          {" \u00B7 "}
+          <span className="text-[var(--on-surface-variant)]">assistant-ui</span>
+          {" \u00B7 "}
+          <span className="text-[var(--on-surface-variant)]">Augment Code</span>
         </p>
       </footer>
     </div>

@@ -7,7 +7,7 @@ import type { JobStatus, CompositionStyle } from "@/lib/types";
 import { DEFAULT_STYLE } from "@/lib/types";
 import GenerationProgress from "@/components/GenerationProgress";
 import EditPanel from "@/components/EditPanel";
-import LiveChat from "@/components/LiveChat";
+import AiAssistant from "@/components/AiAssistant";
 import Navbar from "@/components/Navbar";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 
@@ -148,7 +148,7 @@ function GenerateContent() {
               />
             </div>
             <div className="h-[300px] lg:h-[350px]">
-              <LiveChat />
+              <AiAssistant />
             </div>
           </div>
           </div>
