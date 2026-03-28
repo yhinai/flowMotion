@@ -1991,8 +1991,10 @@ async function processPathBJob(
       musicUrl = sharedAudioResult.musicUrl;
     }
 
-    // If no shared audio music, generate background music (use user config if available)
-    if (!musicUrl) {
+    // If no shared audio music and user didn't explicitly decline, generate background music
+    // When sharedAudio exists but music is undefined, user said "No" to music — respect that
+    const userDeclinedMusic = config.sharedAudio && !config.sharedAudio.music;
+    if (!musicUrl && !userDeclinedMusic) {
       try {
         const contentHint = config.type === "text-video"
           ? (config.text ?? "").slice(0, 100)
@@ -2014,7 +2016,8 @@ async function processPathBJob(
           withVocals: musicGenConfig?.withVocals,
           model: musicGenConfig?.lyriaModel ?? "lyria-3-clip",
         });
-        const musicKey = generateKey(jobId, "music.mp3");
+        const musicExt = path.extname(musicPath) || ".mp3";
+        const musicKey = generateKey(jobId, `music${musicExt}`);
         musicUrl = await uploadFile(musicPath, musicKey);
       } catch (err) {
         console.warn(`[PathB] Music generation failed (non-blocking): ${errorMessage(err)}`);

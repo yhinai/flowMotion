@@ -205,13 +205,21 @@ export async function generateWithLyria3(
 
   const fullPrompt = parts.join(". ");
 
-  const response = await client.models.generateContent({
-    model: modelId,
-    contents: fullPrompt,
-    config: {
-      responseModalities: ["AUDIO", "TEXT"],
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
+
+  let response;
+  try {
+    response = await client.models.generateContent({
+      model: modelId,
+      contents: fullPrompt,
+      config: {
+        responseModalities: ["AUDIO", "TEXT"],
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   // Extract inline audio data from the response
   const candidate = response.candidates?.[0];
