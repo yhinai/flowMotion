@@ -6,6 +6,7 @@ import type {
   AspectRatio,
   RemotionVideoType,
   EditAction,
+  PreJobPayload,
 } from "./types";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -242,6 +243,19 @@ function sendAudioStrategyKeyboard(chatId: number) {
   });
 }
 
+function sendYesNoKeyboard(chatId: number, question: string, prefix: string) {
+  return sendMessage(chatId, question, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Yes", callback_data: `${prefix}:yes` },
+          { text: "No", callback_data: `${prefix}:no` },
+        ],
+      ],
+    },
+  });
+}
+
 function sendImageDoneKeyboard(chatId: number, count: number) {
   return sendMessage(
     chatId,
@@ -253,6 +267,31 @@ function sendImageDoneKeyboard(chatId: number, count: number) {
         ],
       },
     }
+  );
+}
+
+// ─── Shared Questions Flow ──────────────────────────────────────────────────
+
+async function startSharedQuestions(chatId: number, payload: PreJobPayload) {
+  setState(chatId, { step: "shared_narration", preJobPayload: payload });
+  await sendYesNoKeyboard(chatId, "Add AI narration to your video?", "sq_narration");
+}
+
+async function dispatchJobFromShared(
+  chatId: number,
+  payload: PreJobPayload,
+  options: { narration: boolean; music: boolean; sfx: boolean; captions: boolean; thumbnail: boolean }
+) {
+  await sendMessage(chatId, "Starting generation...");
+
+  const jobId = createJob(payload.prompt, "720p", 1, {
+    pathType: payload.pathType,
+    pathConfig: payload.pathConfig,
+  });
+
+  setState(chatId, { step: "processing", jobId });
+  pollAndDeliver(chatId, jobId).catch((err) =>
+    console.error("pollAndDeliver failed:", err)
   );
 }
 
@@ -472,9 +511,9 @@ async function handleCallback(
     return;
   }
 
-  // Path B: Images done
+  // Path B: Images done → shared questions
   if (data === "images:done" && state.step === "b_collecting_images") {
-    await answerCallbackQuery(callbackQueryId, "Starting render...");
+    await answerCallbackQuery(callbackQueryId);
 
     if (state.images.length === 0) {
       await sendMessage(chatId, "Please send at least one image first.");
@@ -483,10 +522,11 @@ async function handleCallback(
 
     await sendMessage(
       chatId,
-      `Creating slideshow from ${state.images.length} images...`
+      `${state.images.length} images ready! A few more options...`
     );
 
-    const jobId = createJob("Image Slideshow", "720p", 1, {
+    await startSharedQuestions(chatId, {
+      prompt: "Image Slideshow",
       pathType: "path-b",
       pathConfig: {
         path: "remotion-only",
@@ -495,11 +535,6 @@ async function handleCallback(
         images: state.images,
       },
     });
-
-    setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId).catch((err) =>
-      console.error("pollAndDeliver failed:", err)
-    );
     return;
   }
 
@@ -532,6 +567,69 @@ async function handleCallback(
     return;
   }
 
+  // Shared questions: Narration
+  if (data.startsWith("sq_narration:") && state.step === "shared_narration") {
+    const narration = data === "sq_narration:yes";
+    await answerCallbackQuery(callbackQueryId, narration ? "Narration: Yes" : "Narration: No");
+    setState(chatId, { step: "shared_music", preJobPayload: state.preJobPayload, narration });
+    await sendYesNoKeyboard(chatId, "Add background music?", "sq_music");
+    return;
+  }
+
+  // Shared questions: Music
+  if (data.startsWith("sq_music:") && state.step === "shared_music") {
+    const music = data === "sq_music:yes";
+    await answerCallbackQuery(callbackQueryId, music ? "Music: Yes" : "Music: No");
+    setState(chatId, { step: "shared_sfx", preJobPayload: state.preJobPayload, narration: state.narration, music });
+    await sendYesNoKeyboard(chatId, "Add sound effects?", "sq_sfx");
+    return;
+  }
+
+  // Shared questions: SFX
+  if (data.startsWith("sq_sfx:") && state.step === "shared_sfx") {
+    const sfx = data === "sq_sfx:yes";
+    await answerCallbackQuery(callbackQueryId, sfx ? "SFX: Yes" : "SFX: No");
+    setState(chatId, {
+      step: "shared_captions",
+      preJobPayload: state.preJobPayload,
+      narration: state.narration,
+      music: state.music,
+      sfx,
+    });
+    await sendYesNoKeyboard(chatId, "Add captions/subtitles?", "sq_captions");
+    return;
+  }
+
+  // Shared questions: Captions
+  if (data.startsWith("sq_captions:") && state.step === "shared_captions") {
+    const captions = data === "sq_captions:yes";
+    await answerCallbackQuery(callbackQueryId, captions ? "Captions: Yes" : "Captions: No");
+    setState(chatId, {
+      step: "shared_thumbnail",
+      preJobPayload: state.preJobPayload,
+      narration: state.narration,
+      music: state.music,
+      sfx: state.sfx,
+      captions,
+    });
+    await sendYesNoKeyboard(chatId, "Generate a thumbnail?", "sq_thumbnail");
+    return;
+  }
+
+  // Shared questions: Thumbnail → dispatch job
+  if (data.startsWith("sq_thumbnail:") && state.step === "shared_thumbnail") {
+    const thumbnail = data === "sq_thumbnail:yes";
+    await answerCallbackQuery(callbackQueryId, thumbnail ? "Thumbnail: Yes" : "Thumbnail: No");
+    await dispatchJobFromShared(chatId, state.preJobPayload, {
+      narration: state.narration,
+      music: state.music,
+      sfx: state.sfx,
+      captions: state.captions,
+      thumbnail,
+    });
+    return;
+  }
+
   // Legacy: template selection (backward compat)
   if (data.startsWith("template:")) {
     const templateId = data.replace("template:", "") as TemplateId;
@@ -548,16 +646,17 @@ async function handleCallback(
 async function handleTextMessage(chatId: number, text: string) {
   const state = getState(chatId);
 
-  // Path A: User sends prompt
+  // Path A: User sends prompt → shared questions
   if (state.step === "a_awaiting_prompt") {
     const styleSuffix = state.style ? ` | ${state.style}` : "";
     const durSuffix = state.durationSeconds ? ` | ${state.durationSeconds}s` : "";
     await sendMessage(
       chatId,
-      `Generating video with ${state.model === "veo-3" ? "Veo 3" : "Veo 3.1"} (${state.aspectRatio}${styleSuffix}${durSuffix})...\nThis takes 2-5 minutes.`
+      `Got it! ${state.model === "veo-3" ? "Veo 3" : "Veo 3.1"} (${state.aspectRatio}${styleSuffix}${durSuffix})\nA few more options before we start...`
     );
 
-    const jobId = createJob(text, "720p", 1, {
+    await startSharedQuestions(chatId, {
+      prompt: text,
       pathType: "path-a",
       pathConfig: {
         path: "ai-video",
@@ -566,19 +665,15 @@ async function handleTextMessage(chatId: number, text: string) {
         prompt: text,
       },
     });
-
-    setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId).catch((err) =>
-      console.error("pollAndDeliver failed:", err)
-    );
     return;
   }
 
-  // Path B: User sends text for text video
+  // Path B: User sends text for text video → shared questions
   if (state.step === "b_awaiting_text") {
-    await sendMessage(chatId, "Creating text video... This takes about 30 seconds.");
+    await sendMessage(chatId, "Text received! A few more options...");
 
-    const jobId = createJob(text, "720p", 1, {
+    await startSharedQuestions(chatId, {
+      prompt: text,
       pathType: "path-b",
       pathConfig: {
         path: "remotion-only",
@@ -587,11 +682,6 @@ async function handleTextMessage(chatId: number, text: string) {
         text,
       },
     });
-
-    setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId).catch((err) =>
-      console.error("pollAndDeliver failed:", err)
-    );
     return;
   }
 

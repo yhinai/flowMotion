@@ -322,8 +322,21 @@ export type ConversationStep =
   // Path C states
   | { step: 'c_awaiting_video' }
   | { step: 'c_action_selection'; videoUrl: string; videoLocalPath: string }
+  // Shared pre-processing questions
+  | { step: 'shared_narration'; preJobPayload: PreJobPayload }
+  | { step: 'shared_music'; preJobPayload: PreJobPayload; narration: boolean }
+  | { step: 'shared_sfx'; preJobPayload: PreJobPayload; narration: boolean; music: boolean }
+  | { step: 'shared_captions'; preJobPayload: PreJobPayload; narration: boolean; music: boolean; sfx: boolean }
+  | { step: 'shared_thumbnail'; preJobPayload: PreJobPayload; narration: boolean; music: boolean; sfx: boolean; captions: boolean }
   // Shared
   | { step: 'processing'; jobId: string };
+
+/** Pre-job payload carried through shared question steps */
+export interface PreJobPayload {
+  readonly prompt: string;
+  readonly pathType: PathJobType;
+  readonly pathConfig: PathConfig;
+}
 
 /** Caption segment from transcription */
 export interface CaptionSegment {
