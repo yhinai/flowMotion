@@ -1778,6 +1778,44 @@ async function processPathAJob(
       Object.defineProperty(scene, "_finalVideoPath", { value: currentVideoPath, writable: true });
     }
 
+    // ── Step 3b: Standalone Music Generation (when sharedAudio.music provided without custom pipeline) ──
+    if (config.sharedAudio?.music && !sharedAudioResult.musicUrl) {
+      try {
+        const musicGenConfig = config.sharedAudio.music;
+        const musicPrompt = `${musicGenConfig.genre ?? "ambient"} ${musicGenConfig.mood ?? "upbeat"} background music for: ${config.prompt.slice(0, 100)}`;
+
+        const musicPath = await generateMusic(musicPrompt, {
+          durationSeconds: config.durationSeconds ?? 8,
+          genre: musicGenConfig.genre,
+          mood: musicGenConfig.mood ?? "upbeat",
+          tempo: musicGenConfig.tempo ?? "medium",
+          instruments: musicGenConfig.instruments,
+          withVocals: musicGenConfig.withVocals,
+          model: musicGenConfig.lyriaModel ?? "lyria-3-clip",
+        });
+
+        const musicKey = generateKey(jobId, "music.mp3");
+        const musicUrl = await uploadFile(musicPath, musicKey);
+        sharedAudioResult = { ...sharedAudioResult, musicUrl: musicUrl, musicLocalPath: musicPath };
+
+        // Overlay music onto the video
+        const tmpDir = `/tmp/path-a-audio-${jobId.slice(0, 8)}`;
+        await mkdir(tmpDir, { recursive: true });
+        const withMusic = path.join(tmpDir, "with-music.mp4");
+        const baseVideo = ((scene as unknown as Record<string, string>)._finalVideoPath as string | undefined) ?? clipPath;
+        try {
+          const mixedPath = await addAudioToVideo(baseVideo, musicPath, withMusic, 0.3);
+          Object.defineProperty(scene, "_finalVideoPath", { value: mixedPath, writable: true });
+        } catch (overlayErr) {
+          console.warn(`[PathA] Music overlay failed: ${errorMessage(overlayErr)}`);
+        }
+
+        console.log(`[PathA] Standalone music generated and uploaded: ${musicUrl}`);
+      } catch (err) {
+        console.warn(`[PathA] Music generation failed (non-blocking): ${errorMessage(err)}`);
+      }
+    }
+
     // ── Step 4: Thumbnail Generation ────────────────────────────────────────
     let thumbnailUrl: string | undefined;
 
@@ -1808,10 +1846,8 @@ async function processPathAJob(
       message: "Checking file size and uploading video...",
     });
 
-    // Determine the final video path (may have audio overlays)
-    const finalVideoPath = (config.audioStrategy === "custom" && config.sharedAudio)
-      ? ((scene as unknown as Record<string, string>)._finalVideoPath ?? clipPath)
-      : clipPath;
+    // Determine the final video path (may have audio overlays from custom pipeline or standalone music)
+    const finalVideoPath = (scene as unknown as Record<string, string>)._finalVideoPath ?? clipPath;
 
     // File size check
     const uploadReadyPath = await ensureFileSizeLimit(finalVideoPath, jobId);
@@ -1955,7 +1991,7 @@ async function processPathBJob(
       musicUrl = sharedAudioResult.musicUrl;
     }
 
-    // If no shared audio music, generate default background music
+    // If no shared audio music, generate background music (use user config if available)
     if (!musicUrl) {
       try {
         const contentHint = config.type === "text-video"
@@ -1964,12 +2000,21 @@ async function processPathBJob(
             ? (config.promoDetails?.headline ?? "promotional video")
             : `${config.type} video`;
 
-        const musicPath = await generateMusic(
-          `Background music for: ${contentHint}`,
-          { durationSeconds: config.duration ?? 30, mood: "upbeat", tempo: "medium" }
-        );
-        const musicExt = path.extname(musicPath) || ".wav";
-        const musicKey = generateKey(jobId, `music${musicExt}`);
+        const musicGenConfig = config.sharedAudio?.music;
+        const musicPrompt = musicGenConfig
+          ? `${musicGenConfig.genre ?? "ambient"} ${musicGenConfig.mood ?? "upbeat"} background music for: ${contentHint}`
+          : `Background music for: ${contentHint}`;
+
+        const musicPath = await generateMusic(musicPrompt, {
+          durationSeconds: config.duration ?? 30,
+          genre: musicGenConfig?.genre,
+          mood: musicGenConfig?.mood ?? "upbeat",
+          tempo: musicGenConfig?.tempo ?? "medium",
+          instruments: musicGenConfig?.instruments,
+          withVocals: musicGenConfig?.withVocals,
+          model: musicGenConfig?.lyriaModel ?? "lyria-3-clip",
+        });
+        const musicKey = generateKey(jobId, "music.mp3");
         musicUrl = await uploadFile(musicPath, musicKey);
       } catch (err) {
         console.warn(`[PathB] Music generation failed (non-blocking): ${errorMessage(err)}`);
