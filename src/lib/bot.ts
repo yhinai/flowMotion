@@ -1648,6 +1648,30 @@ async function dispatchPathCJob(
 async function handleTextMessage(chatId: number, text: string): Promise<void> {
   const state = getState(chatId);
 
+  // ── GitHub repo URL → auto-generate repo slides (highest priority) ──
+  const GITHUB_URL_RE = /https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)/;
+  const ghMatch = text.match(GITHUB_URL_RE);
+  if (ghMatch) {
+    const repoUrl = ghMatch[0];
+    await sendMessage(chatId, `Analyzing GitHub repo: <b>${ghMatch[1]}/${ghMatch[2]}</b>\nGenerating slide presentation...`);
+
+    const jobId = createJob(repoUrl, "1080p", 10, {
+      pathType: "path-b",
+      pathConfig: {
+        path: "remotion-only",
+        type: "text-video",
+        aspectRatio: "16:9" as const,
+        text: `__REPO_SLIDES__:${repoUrl}`,
+      },
+    });
+
+    setState(chatId, { step: "processing", jobId });
+    pollAndDeliver(chatId, jobId).catch((err) =>
+      console.error("pollAndDeliver failed:", err)
+    );
+    return;
+  }
+
   // ── Path A: First frame generate (user describes the shot) ──
   if (state.step === "a_first_frame_generate") {
     await sendMessage(chatId, "Generating first frame image with AI...");
@@ -1917,32 +1941,6 @@ async function handleTextMessage(chatId: number, text: string): Promise<void> {
     await sendMessage(chatId, "SFX description saved!");
     await sendYesNoKeyboard(chatId, "Add captions/subtitles?", "sq_captions");
     return;
-  }
-
-  // ── Detect GitHub repo URL → auto-generate repo slides ──
-  const GITHUB_URL_RE = /https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)/;
-  if (GITHUB_URL_RE.test(text) && (state.step === "idle" || state.step === "path_selection")) {
-    const match = text.match(GITHUB_URL_RE);
-    if (match) {
-      const repoUrl = match[0];
-      await sendMessage(chatId, `Analyzing GitHub repo: <b>${match[1]}/${match[2]}</b>\nGenerating slide presentation...`);
-
-      const jobId = createJob(repoUrl, "1080p", 10, {
-        pathType: "path-b",
-        pathConfig: {
-          path: "remotion-only",
-          type: "text-video",
-          aspectRatio: "16:9" as const,
-          text: `__REPO_SLIDES__:${repoUrl}`,
-        },
-      });
-
-      setState(chatId, { step: "processing", jobId });
-      pollAndDeliver(chatId, jobId).catch((err) =>
-        console.error("pollAndDeliver failed:", err)
-      );
-      return;
-    }
   }
 
   // ── /start or /create — always reset ──
