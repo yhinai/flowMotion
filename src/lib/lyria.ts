@@ -1,6 +1,7 @@
 import { mkdir, access, writeFile, readdir } from "fs/promises";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
+import type { LyriaModel as LyriaModelType, MusicGenConfig } from "./types";
 
 export type LyriaModel = "lyria-2" | "lyria-3-clip" | "lyria-3-pro";
 
@@ -11,6 +12,13 @@ export interface MusicConfig {
   tempo?: "slow" | "medium" | "fast";
   model?: LyriaModel;
 }
+
+/** Maps user-facing model names to Lyria API model IDs */
+const LYRIA_MODEL_MAP: Record<LyriaModel, string> = {
+  "lyria-3-clip": "lyria-3-clip-preview",
+  "lyria-3-pro": "lyria-3-pro-preview",
+  "lyria-2": "models/lyria-realtime-exp",
+};
 
 const LYRIA_DIR = "/tmp/lyria";
 
@@ -74,6 +82,24 @@ function writePcmToWav(
   return wavBuffer;
 }
 
+/**
+ * Build a rich prompt from MusicGenConfig fields for Lyria models.
+ */
+function buildMusicPrompt(config: MusicGenConfig, basePrompt?: string): string {
+  const parts: string[] = [];
+
+  if (basePrompt) parts.push(basePrompt);
+  if (config.genre) parts.push(`Genre: ${config.genre}`);
+  if (config.mood) parts.push(`Mood: ${config.mood}`);
+  if (config.instruments) parts.push(`Instruments: ${config.instruments}`);
+  if (config.tempo) parts.push(`Tempo: ${config.tempo}`);
+  if (config.withVocals !== undefined) {
+    parts.push(config.withVocals ? "Include vocals" : "Instrumental only, no vocals");
+  }
+
+  return parts.length > 0 ? parts.join(". ") : "Background music";
+}
+
 export async function generateMusic(
   prompt: string,
   config: MusicConfig
@@ -98,6 +124,44 @@ export async function generateMusic(
 }
 
 /**
+ * Generate music using a MusicGenConfig from the 3-path architecture.
+ * Routes to the appropriate Lyria model based on config.lyriaModel.
+ */
+export async function generateMusicWithConfig(
+  config: MusicGenConfig,
+  durationSeconds: number
+): Promise<string> {
+  const lyriaModel: LyriaModel = config.lyriaModel ?? "lyria-2";
+  const prompt = buildMusicPrompt(config);
+
+  const musicConfig: MusicConfig = {
+    durationSeconds,
+    genre: config.genre,
+    mood: config.mood,
+    tempo: config.tempo,
+    model: lyriaModel,
+  };
+
+  try {
+    const modelId = LYRIA_MODEL_MAP[lyriaModel];
+
+    if (lyriaModel === "lyria-3-clip") {
+      return await generateWithLyria3(prompt, musicConfig, modelId as "lyria-3-clip-preview");
+    }
+    if (lyriaModel === "lyria-3-pro") {
+      return await generateWithLyria3(prompt, musicConfig, modelId as "lyria-3-pro-preview");
+    }
+    // Default: lyria-2 (real-time streaming)
+    return await generateWithLyria(prompt, musicConfig);
+  } catch (err) {
+    console.warn(
+      `Lyria generation failed (model=${lyriaModel}): ${err instanceof Error ? err.message : err}. Falling back to placeholder.`
+    );
+    return await getPlaceholderMusic(musicConfig);
+  }
+}
+
+/**
  * Generate music using Lyria 3 models (Clip or Pro) via Gemini generateContent.
  * These models use response_modalities: ["AUDIO"] and return inline audio data.
  */
@@ -114,7 +178,7 @@ export async function generateWithLyria3(
 
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  // Build a descriptive prompt incorporating genre/mood/tempo
+  // Build a descriptive prompt incorporating genre/mood/tempo/instruments/vocals
   const parts: string[] = [prompt];
   if (config.genre) parts.push(`Genre: ${config.genre}`);
   if (config.mood) parts.push(`Mood: ${config.mood}`);
