@@ -246,3 +246,84 @@ export interface GitHubMetadata {
 }
 
 export type SourceType = 'prompt' | 'youtube' | 'github';
+
+// ─── 3-Path Architecture Types ───────────────────────────────────────────────
+
+/** The three top-level creation paths */
+export type BotPath = 'ai-video' | 'remotion-only' | 'upload-edit';
+
+/** Veo model selection for Path A */
+export type VeoModel = 'veo-3' | 'veo-3.1';
+
+/** Supported aspect ratios across all paths */
+export type AspectRatio = '16:9' | '9:16';
+
+/** Remotion-only video types for Path B */
+export type RemotionVideoType = 'text-video' | 'image-slideshow';
+
+/** Edit actions for Path C */
+export type EditAction = 'add-captions' | 'remove-silence';
+
+/** Path A config: direct Veo video generation */
+export interface PathAConfig {
+  readonly path: 'ai-video';
+  readonly model: VeoModel;
+  readonly aspectRatio: AspectRatio;
+  readonly prompt: string;
+}
+
+/** Path B config: Remotion-only compositions */
+export interface PathBConfig {
+  readonly path: 'remotion-only';
+  readonly type: RemotionVideoType;
+  readonly aspectRatio: AspectRatio;
+  readonly duration?: number; // seconds
+  readonly text?: string; // for text-video
+  readonly images?: string[]; // for image-slideshow
+}
+
+/** Path C config: upload and edit */
+export interface PathCConfig {
+  readonly path: 'upload-edit';
+  readonly action: EditAction;
+  readonly videoUrl: string; // uploaded video URL
+  readonly videoLocalPath: string; // local path to downloaded video
+}
+
+export type PathConfig = PathAConfig | PathBConfig | PathCConfig;
+
+// ─── Conversation State Machine (Telegram Bot) ──────────────────────────────
+
+export type ConversationStep =
+  | { step: 'idle' }
+  | { step: 'path_selection' }
+  // Path A states
+  | { step: 'a_model_selection' }
+  | { step: 'a_aspect_ratio'; model: VeoModel }
+  | { step: 'a_awaiting_prompt'; model: VeoModel; aspectRatio: AspectRatio }
+  // Path B states
+  | { step: 'b_type_selection' }
+  | { step: 'b_aspect_ratio'; type: RemotionVideoType }
+  | { step: 'b_awaiting_text'; type: RemotionVideoType; aspectRatio: AspectRatio }
+  | { step: 'b_collecting_images'; type: RemotionVideoType; aspectRatio: AspectRatio; images: string[] }
+  // Path C states
+  | { step: 'c_awaiting_video' }
+  | { step: 'c_action_selection'; videoUrl: string; videoLocalPath: string }
+  // Shared
+  | { step: 'processing'; jobId: string };
+
+/** Caption segment from transcription */
+export interface CaptionSegment {
+  readonly text: string;
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+/** Silence interval detected in audio */
+export interface SilenceInterval {
+  readonly startSec: number;
+  readonly endSec: number;
+}
+
+/** Job types for the 3-path architecture */
+export type PathJobType = 'path-a' | 'path-b' | 'path-c';

@@ -2,7 +2,7 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import path from "path";
 import os from "os";
-import type { GeneratedScript, CompositionStyle, TemplateId, TemplateInput } from "./types";
+import type { GeneratedScript, CompositionStyle, TemplateId, TemplateInput, AspectRatio, CaptionSegment } from "./types";
 import type { EditorialVideoSpec } from "../editorial/types";
 import { DEFAULT_STYLE } from "./types";
 import { getTemplate } from "./templates";
@@ -169,6 +169,144 @@ export async function renderEditorialVideo(
     concurrency: spec.meta.width > 1920
       ? Math.max(1, Math.min(4, Math.floor(os.cpus().length / 4)))
       : getOptimalConcurrency(),
+  });
+
+  return outputPath;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3-Path Architecture Render Functions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface TextVideoConfig {
+  aspectRatio: AspectRatio;
+  duration?: number;
+}
+
+export interface SlideshowConfig {
+  aspectRatio: AspectRatio;
+  duration?: number; // seconds per slide
+}
+
+/**
+ * Path B: Render a text video using the TextVideo Remotion composition.
+ */
+export async function renderTextVideo(
+  text: string,
+  config: TextVideoConfig,
+  outputPath: string
+): Promise<string> {
+  const width = config.aspectRatio === "9:16" ? 1080 : 1920;
+  const height = config.aspectRatio === "9:16" ? 1920 : 1080;
+
+  // Split text into lines/slides
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const durationPerSlide = config.duration ?? 3;
+  const totalDuration = lines.length * durationPerSlide;
+
+  const bundled = await getBundle();
+  const FPS = 30;
+
+  const composition = await selectComposition({
+    serveUrl: bundled,
+    id: "TextVideo",
+    inputProps: { lines, durationPerSlide },
+  });
+
+  const finalComposition = {
+    ...composition,
+    width,
+    height,
+    durationInFrames: totalDuration * FPS,
+  };
+
+  await renderMedia({
+    composition: finalComposition,
+    serveUrl: bundled,
+    outputLocation: outputPath,
+    inputProps: { lines, durationPerSlide },
+    ...getSharedRenderOptions(),
+  });
+
+  return outputPath;
+}
+
+/**
+ * Path B: Render an image slideshow using the ImageSlideshow Remotion composition.
+ */
+export async function renderImageSlideshow(
+  images: string[],
+  config: SlideshowConfig,
+  outputPath: string
+): Promise<string> {
+  const width = config.aspectRatio === "9:16" ? 1080 : 1920;
+  const height = config.aspectRatio === "9:16" ? 1920 : 1080;
+
+  const durationPerSlide = config.duration ?? 4;
+  const totalDuration = images.length * durationPerSlide;
+
+  const bundled = await getBundle();
+  const FPS = 30;
+
+  const composition = await selectComposition({
+    serveUrl: bundled,
+    id: "ImageSlideshow",
+    inputProps: { images, durationPerSlide },
+  });
+
+  const finalComposition = {
+    ...composition,
+    width,
+    height,
+    durationInFrames: totalDuration * FPS,
+  };
+
+  await renderMedia({
+    composition: finalComposition,
+    serveUrl: bundled,
+    outputLocation: outputPath,
+    inputProps: { images, durationPerSlide },
+    ...getSharedRenderOptions(),
+  });
+
+  return outputPath;
+}
+
+/**
+ * Path C: Render a captioned video using the CaptionedVideo Remotion composition.
+ */
+export async function renderCaptionedVideo(
+  videoPath: string,
+  captions: CaptionSegment[],
+  outputPath: string
+): Promise<string> {
+  const bundled = await getBundle();
+  const FPS = 30;
+
+  // Get video metadata to determine duration and dimensions
+  // For now, assume 30 seconds at 1080p — will be refined in Phase 3
+  const durationInFrames = 30 * FPS;
+
+  const composition = await selectComposition({
+    serveUrl: bundled,
+    id: "CaptionedVideo",
+    inputProps: { videoSrc: videoPath, captions },
+  });
+
+  const finalComposition = {
+    ...composition,
+    durationInFrames,
+  };
+
+  await renderMedia({
+    composition: finalComposition,
+    serveUrl: bundled,
+    outputLocation: outputPath,
+    inputProps: { videoSrc: videoPath, captions },
+    ...getSharedRenderOptions(),
   });
 
   return outputPath;

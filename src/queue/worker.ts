@@ -18,6 +18,11 @@ import type {
   SourceType,
   TemplateInput,
   GenerationEngine,
+  PathConfig,
+  PathAConfig,
+  PathBConfig,
+  PathCConfig,
+  PathJobType,
 } from "@/lib/types";
 import { DEFAULT_STYLE } from "@/lib/types";
 
@@ -39,6 +44,9 @@ interface TemplateOptions {
   assets?: string[];
   enableVeo?: boolean;
   engine?: GenerationEngine;
+  // 3-path architecture
+  pathType?: PathJobType;
+  pathConfig?: PathConfig;
 }
 
 export function createJob(
@@ -61,9 +69,23 @@ export function createJob(
 
   jobs.set(jobId, status);
 
+  // Route to 3-path pipelines
+  if (options?.pathType === "path-a" && options.pathConfig?.path === "ai-video") {
+    processPathAJob(jobId, options.pathConfig as PathAConfig);
+    return jobId;
+  }
+  if (options?.pathType === "path-b" && options.pathConfig?.path === "remotion-only") {
+    processPathBJob(jobId, options.pathConfig as PathBConfig);
+    return jobId;
+  }
+  if (options?.pathType === "path-c" && options.pathConfig?.path === "upload-edit") {
+    processPathCJob(jobId, options.pathConfig as PathCConfig);
+    return jobId;
+  }
+
+  // Legacy routing
   const engine: GenerationEngine = options?.engine ?? "auto";
 
-  // Route to the appropriate pipeline
   if (options?.templateId === "editorial") {
     processEditorialJob(jobId, prompt, resolution);
   } else if (options?.templateId) {
@@ -1165,6 +1187,218 @@ async function processEditorialJob(
       stage: "completed",
       progress: 100,
       message: "Editorial video completed",
+      downloadUrl,
+    });
+  } catch (error) {
+    await updateJobPersistent(jobId, {
+      stage: "failed",
+      message: error instanceof Error ? error.message : "An unknown error occurred",
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3-Path Architecture Processors
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Path A: Direct Veo video generation.
+ * Prompt → Veo → upload → deliver.
+ */
+async function processPathAJob(
+  jobId: string,
+  config: PathAConfig
+): Promise<void> {
+  try {
+    await updateJobPersistent(jobId, {
+      stage: "generating_clips",
+      progress: 10,
+      message: `Generating video with ${config.model === "veo-3" ? "Veo 3" : "Veo 3.1"}...`,
+    });
+
+    // Map user model names to API model IDs
+    const modelId =
+      config.model === "veo-3"
+        ? "veo-3.0-generate-preview"
+        : "veo-3.1-fast-generate-preview";
+
+    // Generate a single video clip directly from prompt
+    const scene: Scene = {
+      scene_number: 1,
+      title: "AI Video",
+      visual_description: config.prompt,
+      narration_text: "",
+      duration_seconds: 8,
+      camera_direction: "cinematic",
+      mood: "dynamic",
+      transition: "cut",
+    };
+
+    const clipPath = await generateVideoClip(scene, {
+      model: modelId,
+      aspectRatio: config.aspectRatio,
+      resolution: "720p",
+    });
+
+    checkCancelled(jobId);
+    await updateJobPersistent(jobId, {
+      stage: "uploading_assets",
+      progress: 70,
+      message: "Uploading video...",
+    });
+
+    const downloadKey = generateKey(jobId, "final.mp4");
+    const downloadUrl = await uploadFile(clipPath, downloadKey);
+
+    await updateJobPersistent(jobId, {
+      stage: "completed",
+      progress: 100,
+      message: "Video generation completed",
+      downloadUrl,
+    });
+  } catch (error) {
+    await updateJobPersistent(jobId, {
+      stage: "failed",
+      message: error instanceof Error ? error.message : "An unknown error occurred",
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    });
+  }
+}
+
+/**
+ * Path B: Remotion-only video generation.
+ * Text Video or Image Slideshow → Remotion render → upload → deliver.
+ */
+async function processPathBJob(
+  jobId: string,
+  config: PathBConfig
+): Promise<void> {
+  try {
+    await updateJobPersistent(jobId, {
+      stage: "composing_video",
+      progress: 10,
+      message: `Creating ${config.type === "text-video" ? "text video" : "image slideshow"}...`,
+    });
+
+    const renderDir = "/tmp/renders";
+    await mkdir(renderDir, { recursive: true });
+    const outputPath = `${renderDir}/${jobId}.mp4`;
+
+    if (config.type === "text-video") {
+      const { renderTextVideo } = await import("@/lib/render");
+      await renderTextVideo(
+        config.text ?? "",
+        {
+          aspectRatio: config.aspectRatio,
+          duration: config.duration,
+        },
+        outputPath
+      );
+    } else {
+      const { renderImageSlideshow } = await import("@/lib/render");
+      await renderImageSlideshow(
+        config.images ?? [],
+        {
+          aspectRatio: config.aspectRatio,
+          duration: config.duration,
+        },
+        outputPath
+      );
+    }
+
+    checkCancelled(jobId);
+    await updateJobPersistent(jobId, {
+      stage: "uploading_assets",
+      progress: 80,
+      message: "Uploading video...",
+    });
+
+    const downloadKey = generateKey(jobId, "final.mp4");
+    const downloadUrl = await uploadFile(outputPath, downloadKey);
+
+    await updateJobPersistent(jobId, {
+      stage: "completed",
+      progress: 100,
+      message: "Video created successfully",
+      downloadUrl,
+    });
+  } catch (error) {
+    await updateJobPersistent(jobId, {
+      stage: "failed",
+      message: error instanceof Error ? error.message : "An unknown error occurred",
+      error: error instanceof Error ? error.message : "An unknown error occurred",
+    });
+  }
+}
+
+/**
+ * Path C: Upload & Edit.
+ * Add Captions or Remove Silence → process → upload → deliver.
+ */
+async function processPathCJob(
+  jobId: string,
+  config: PathCConfig
+): Promise<void> {
+  try {
+    const renderDir = "/tmp/renders";
+    await mkdir(renderDir, { recursive: true });
+    const outputPath = `${renderDir}/${jobId}.mp4`;
+
+    if (config.action === "add-captions") {
+      await updateJobPersistent(jobId, {
+        stage: "generating_script",
+        progress: 10,
+        message: "Transcribing audio...",
+      });
+
+      const { transcribeVideo } = await import("@/lib/transcribe");
+      const captions = await transcribeVideo(config.videoLocalPath);
+
+      checkCancelled(jobId);
+      await updateJobPersistent(jobId, {
+        stage: "composing_video",
+        progress: 50,
+        message: "Overlaying captions...",
+      });
+
+      const { renderCaptionedVideo } = await import("@/lib/render");
+      await renderCaptionedVideo(config.videoLocalPath, captions, outputPath);
+    } else {
+      await updateJobPersistent(jobId, {
+        stage: "generating_script",
+        progress: 10,
+        message: "Detecting silence...",
+      });
+
+      const { detectSilence } = await import("@/lib/silence");
+      const silenceIntervals = await detectSilence(config.videoLocalPath);
+
+      checkCancelled(jobId);
+      await updateJobPersistent(jobId, {
+        stage: "composing_video",
+        progress: 50,
+        message: "Removing silent segments...",
+      });
+
+      const { removeSilence } = await import("@/lib/silence");
+      await removeSilence(config.videoLocalPath, silenceIntervals, outputPath);
+    }
+
+    checkCancelled(jobId);
+    await updateJobPersistent(jobId, {
+      stage: "uploading_assets",
+      progress: 85,
+      message: "Uploading processed video...",
+    });
+
+    const downloadKey = generateKey(jobId, "final.mp4");
+    const downloadUrl = await uploadFile(outputPath, downloadKey);
+
+    await updateJobPersistent(jobId, {
+      stage: "completed",
+      progress: 100,
+      message: "Video processed successfully",
       downloadUrl,
     });
   } catch (error) {

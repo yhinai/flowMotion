@@ -1,5 +1,13 @@
 import { createJob, getJobStatus } from "@/queue/worker";
-import type { TemplateId, SourceType } from "./types";
+import type {
+  TemplateId,
+  SourceType,
+  ConversationStep,
+  VeoModel,
+  AspectRatio,
+  RemotionVideoType,
+  EditAction,
+} from "./types";
 import { extractYouTubeId } from "./youtube";
 import { parseGitHubUrl } from "./github";
 
@@ -9,31 +17,46 @@ const MAX_WAIT_MS = 10 * 60 * 1000;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// Store pending inputs per chat: user sends text/images, then picks a template
-interface PendingInput {
-  input: string;       // full user message (used as prompt context)
-  sourceUrl?: string;  // extracted URL (YouTube/GitHub) — separate from prompt text
-  inputType: SourceType;
-  assets: string[];
-}
+// ─── Conversation State Store ────────────────────────────────────────────────
 
 declare global {
   // eslint-disable-next-line no-var
-  var __pendingInputs: Map<number, PendingInput> | undefined;
+  var __conversations: Map<number, ConversationStep> | undefined;
 }
 
-const pendingInputs: Map<number, PendingInput> =
-  global.__pendingInputs ?? (global.__pendingInputs = new Map());
+const conversations: Map<number, ConversationStep> =
+  global.__conversations ?? (global.__conversations = new Map());
 
-// -- Telegram API helpers --
+function getState(chatId: number): ConversationStep {
+  return conversations.get(chatId) ?? { step: "idle" };
+}
 
-async function sendMessage(chatId: number, text: string, extra?: Record<string, unknown>) {
+function setState(chatId: number, state: ConversationStep): void {
+  conversations.set(chatId, state);
+}
+
+function resetState(chatId: number): void {
+  conversations.set(chatId, { step: "idle" });
+}
+
+// ─── Telegram API helpers ────────────────────────────────────────────────────
+
+async function sendMessage(
+  chatId: number,
+  text: string,
+  extra?: Record<string, unknown>
+) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await fetch(`${API_BASE}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", ...extra }),
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: "HTML",
+          ...extra,
+        }),
         signal: AbortSignal.timeout(15_000),
       });
       return;
@@ -47,7 +70,11 @@ async function sendMessage(chatId: number, text: string, extra?: Record<string, 
   }
 }
 
-async function sendVideo(chatId: number, videoUrl: string, caption?: string) {
+async function sendVideo(
+  chatId: number,
+  videoUrl: string,
+  caption?: string
+) {
   const MAX_RETRIES = 4;
   const RETRY_DELAY_MS = 5_000;
 
@@ -68,7 +95,10 @@ async function sendVideo(chatId: number, videoUrl: string, caption?: string) {
       if (res.ok) return;
 
       const err = await res.json().catch(() => ({}));
-      console.warn(`sendVideo attempt ${attempt} failed (HTTP ${res.status}):`, err);
+      console.warn(
+        `sendVideo attempt ${attempt} failed (HTTP ${res.status}):`,
+        err
+      );
     } catch (err) {
       console.warn(`sendVideo attempt ${attempt} failed (network):`, err);
     }
@@ -78,12 +108,15 @@ async function sendVideo(chatId: number, videoUrl: string, caption?: string) {
     }
   }
 
-  // All retries exhausted — send the URL as a text message fallback
+  // All retries exhausted — send URL as text fallback
   console.warn("sendVideo exhausted retries, falling back to text message");
-  await sendMessage(chatId, `✅ Your video is ready:\n${videoUrl}`);
+  await sendMessage(chatId, `Your video is ready:\n${videoUrl}`);
 }
 
-async function answerCallbackQuery(callbackQueryId: string, text?: string) {
+async function answerCallbackQuery(
+  callbackQueryId: string,
+  text?: string
+) {
   try {
     await fetch(`${API_BASE}/answerCallbackQuery`, {
       method: "POST",
@@ -96,63 +129,85 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
   }
 }
 
-// -- Input type detection --
+// ─── Keyboard Builders ──────────────────────────────────────────────────────
 
-// Extracts the first URL found in a string
-function extractUrl(text: string): string | undefined {
-  const match = text.match(/https?:\/\/\S+/);
-  return match?.[0];
+function sendPathKeyboard(chatId: number) {
+  return sendMessage(chatId, "What would you like to create?", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "AI Video (Veo)", callback_data: "path:ai-video" }],
+        [{ text: "Remotion Video", callback_data: "path:remotion-only" }],
+        [{ text: "Upload & Edit", callback_data: "path:upload-edit" }],
+      ],
+    },
+  });
 }
 
-function detectInputType(text: string): { type: SourceType; url?: string } {
-  const url = extractUrl(text);
-  if (url && extractYouTubeId(url)) {
-    return { type: "youtube", url };
-  }
-  if (url && parseGitHubUrl(url)) {
-    return { type: "github", url };
-  }
-  return { type: "prompt" };
-}
-
-// -- Template selection keyboard --
-
-function sendTemplateKeyboard(chatId: number) {
-  return sendMessage(chatId, "Choose a video template:", {
+function sendModelKeyboard(chatId: number) {
+  return sendMessage(chatId, "Choose your AI model:", {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: "Product Launch", callback_data: "template:product-launch" },
-          { text: "Explainer", callback_data: "template:explainer" },
-        ],
-        [
-          { text: "Social Media", callback_data: "template:social-promo" },
-          { text: "Brand Story", callback_data: "template:brand-story" },
+          { text: "Veo 3", callback_data: "model:veo-3" },
+          { text: "Veo 3.1 (Fast)", callback_data: "model:veo-3.1" },
         ],
       ],
     },
   });
 }
 
-// -- Job processing and status updates --
-
-async function processAndSendVideo(
-  chatId: number,
-  templateId: TemplateId,
-  pending: PendingInput
-) {
-  await sendMessage(
-    chatId,
-    `Generating <b>${templateId}</b> video...\nThis takes about 30-60 seconds, please wait.`
-  );
-
-  const jobId = createJob(pending.input, "720p", 5, {
-    templateId,
-    sourceType: pending.inputType,
-    sourceUrl: pending.sourceUrl,
-    assets: pending.assets.length > 0 ? pending.assets : undefined,
+function sendAspectRatioKeyboard(chatId: number) {
+  return sendMessage(chatId, "Choose aspect ratio:", {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "16:9 (Landscape)", callback_data: "ar:16:9" },
+          { text: "9:16 (Portrait)", callback_data: "ar:9:16" },
+        ],
+      ],
+    },
   });
+}
 
+function sendRemotionTypeKeyboard(chatId: number) {
+  return sendMessage(chatId, "Choose video type:", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Text Video", callback_data: "rtype:text-video" }],
+        [{ text: "Image Slideshow", callback_data: "rtype:image-slideshow" }],
+      ],
+    },
+  });
+}
+
+function sendEditActionKeyboard(chatId: number) {
+  return sendMessage(chatId, "What would you like to do with your video?", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Add Captions", callback_data: "edit:add-captions" }],
+        [{ text: "Remove Silence", callback_data: "edit:remove-silence" }],
+      ],
+    },
+  });
+}
+
+function sendImageDoneKeyboard(chatId: number, count: number) {
+  return sendMessage(
+    chatId,
+    `${count} image(s) received. Send more or tap Done.`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `Done (${count} images)`, callback_data: "images:done" }],
+        ],
+      },
+    }
+  );
+}
+
+// ─── Job Processing & Status Updates ─────────────────────────────────────────
+
+async function pollAndDeliver(chatId: number, jobId: string) {
   const start = Date.now();
   let lastStage = "";
 
@@ -165,10 +220,10 @@ async function processAndSendVideo(
     if (status.stage !== lastStage) {
       lastStage = status.stage;
       const stageLabel: Record<string, string> = {
-        generating_script: "✍️ Analyzing content and writing script...",
-        generating_clips: "🎥 Generating video clips...",
-        uploading_assets: "☁️ Uploading assets...",
-        composing_video: "🎞️ Composing final video...",
+        generating_script: "Writing script...",
+        generating_clips: "Generating video...",
+        uploading_assets: "Uploading assets...",
+        composing_video: "Composing final video...",
       };
       if (stageLabel[status.stage]) {
         await sendMessage(chatId, stageLabel[status.stage]);
@@ -176,29 +231,352 @@ async function processAndSendVideo(
     }
 
     if (status.stage === "completed" && status.downloadUrl) {
-      await sendVideo(
-        chatId,
-        status.downloadUrl,
-        status.generatedScript?.title
-          ? `${status.generatedScript.title}`
-          : "Your AI-generated video"
-      );
+      await sendVideo(chatId, status.downloadUrl, "Here's your video!");
+      resetState(chatId);
       return;
     }
 
     if (status.stage === "failed") {
-      await sendMessage(chatId, `Generation failed: ${status.error ?? "Unknown error"}`);
+      await sendMessage(
+        chatId,
+        `Generation failed: ${status.error ?? "Unknown error"}`
+      );
+      resetState(chatId);
       return;
     }
   }
 
   await sendMessage(chatId, "Generation timed out. Please try again.");
+  resetState(chatId);
 }
 
-// -- Webhook handler --
+// ─── Callback Query Handler ─────────────────────────────────────────────────
 
-export async function handleTelegramUpdate(update: Record<string, unknown>) {
-  // Handle callback queries (template selection)
+async function handleCallback(
+  chatId: number,
+  callbackQueryId: string,
+  data: string
+) {
+  const state = getState(chatId);
+
+  // Path selection
+  if (data.startsWith("path:")) {
+    const path = data.replace("path:", "");
+    await answerCallbackQuery(callbackQueryId, `Selected: ${path}`);
+
+    if (path === "ai-video") {
+      setState(chatId, { step: "a_model_selection" });
+      await sendModelKeyboard(chatId);
+    } else if (path === "remotion-only") {
+      setState(chatId, { step: "b_type_selection" });
+      await sendRemotionTypeKeyboard(chatId);
+    } else if (path === "upload-edit") {
+      setState(chatId, { step: "c_awaiting_video" });
+      await sendMessage(chatId, "Send me the video you want to edit.");
+    }
+    return;
+  }
+
+  // Path A: Model selection
+  if (data.startsWith("model:") && state.step === "a_model_selection") {
+    const model = data.replace("model:", "") as VeoModel;
+    await answerCallbackQuery(callbackQueryId, `Model: ${model}`);
+    setState(chatId, { step: "a_aspect_ratio", model });
+    await sendAspectRatioKeyboard(chatId);
+    return;
+  }
+
+  // Path A: Aspect ratio
+  if (data.startsWith("ar:") && state.step === "a_aspect_ratio") {
+    const aspectRatio = data.replace("ar:", "") as AspectRatio;
+    await answerCallbackQuery(callbackQueryId, `Aspect ratio: ${aspectRatio}`);
+    setState(chatId, {
+      step: "a_awaiting_prompt",
+      model: state.model,
+      aspectRatio,
+    });
+    await sendMessage(
+      chatId,
+      "Now send me a prompt describing the video you want to generate."
+    );
+    return;
+  }
+
+  // Path B: Type selection
+  if (data.startsWith("rtype:") && state.step === "b_type_selection") {
+    const type = data.replace("rtype:", "") as RemotionVideoType;
+    await answerCallbackQuery(callbackQueryId, `Type: ${type}`);
+    setState(chatId, { step: "b_aspect_ratio", type });
+    await sendAspectRatioKeyboard(chatId);
+    return;
+  }
+
+  // Path B: Aspect ratio
+  if (data.startsWith("ar:") && state.step === "b_aspect_ratio") {
+    const aspectRatio = data.replace("ar:", "") as AspectRatio;
+    await answerCallbackQuery(callbackQueryId, `Aspect ratio: ${aspectRatio}`);
+
+    if (state.type === "text-video") {
+      setState(chatId, {
+        step: "b_awaiting_text",
+        type: state.type,
+        aspectRatio,
+      });
+      await sendMessage(
+        chatId,
+        "Send me the text content for your video. Each line becomes a separate slide."
+      );
+    } else {
+      setState(chatId, {
+        step: "b_collecting_images",
+        type: state.type,
+        aspectRatio,
+        images: [],
+      });
+      await sendMessage(
+        chatId,
+        "Send me the images for your slideshow. Tap Done when finished."
+      );
+    }
+    return;
+  }
+
+  // Path B: Images done
+  if (data === "images:done" && state.step === "b_collecting_images") {
+    await answerCallbackQuery(callbackQueryId, "Starting render...");
+
+    if (state.images.length === 0) {
+      await sendMessage(chatId, "Please send at least one image first.");
+      return;
+    }
+
+    await sendMessage(
+      chatId,
+      `Creating slideshow from ${state.images.length} images...`
+    );
+
+    const jobId = createJob("Image Slideshow", "720p", 1, {
+      pathType: "path-b",
+      pathConfig: {
+        path: "remotion-only",
+        type: "image-slideshow",
+        aspectRatio: state.aspectRatio,
+        images: state.images,
+      },
+    });
+
+    setState(chatId, { step: "processing", jobId });
+    pollAndDeliver(chatId, jobId);
+    return;
+  }
+
+  // Path C: Edit action selection
+  if (data.startsWith("edit:") && state.step === "c_action_selection") {
+    const action = data.replace("edit:", "") as EditAction;
+    await answerCallbackQuery(callbackQueryId, `Action: ${action}`);
+
+    const actionLabel =
+      action === "add-captions" ? "Adding captions" : "Removing silence";
+    await sendMessage(chatId, `${actionLabel}... This may take a minute.`);
+
+    const jobId = createJob("Upload Edit", "720p", 1, {
+      pathType: "path-c",
+      pathConfig: {
+        path: "upload-edit",
+        action,
+        videoUrl: state.videoUrl,
+        videoLocalPath: state.videoLocalPath,
+      },
+    });
+
+    setState(chatId, { step: "processing", jobId });
+    pollAndDeliver(chatId, jobId);
+    return;
+  }
+
+  // Legacy: template selection (backward compat)
+  if (data.startsWith("template:")) {
+    const templateId = data.replace("template:", "") as TemplateId;
+    await answerCallbackQuery(callbackQueryId, `Selected: ${templateId}`);
+    // Handled by legacy flow if needed
+    return;
+  }
+
+  await answerCallbackQuery(callbackQueryId);
+}
+
+// ─── Text Message Handler ───────────────────────────────────────────────────
+
+async function handleTextMessage(chatId: number, text: string) {
+  const state = getState(chatId);
+
+  // Path A: User sends prompt
+  if (state.step === "a_awaiting_prompt") {
+    await sendMessage(
+      chatId,
+      `Generating video with ${state.model === "veo-3" ? "Veo 3" : "Veo 3.1"} (${state.aspectRatio})...\nThis takes 2-5 minutes.`
+    );
+
+    const jobId = createJob(text, "720p", 1, {
+      pathType: "path-a",
+      pathConfig: {
+        path: "ai-video",
+        model: state.model,
+        aspectRatio: state.aspectRatio,
+        prompt: text,
+      },
+    });
+
+    setState(chatId, { step: "processing", jobId });
+    pollAndDeliver(chatId, jobId);
+    return;
+  }
+
+  // Path B: User sends text for text video
+  if (state.step === "b_awaiting_text") {
+    await sendMessage(chatId, "Creating text video... This takes about 30 seconds.");
+
+    const jobId = createJob(text, "720p", 1, {
+      pathType: "path-b",
+      pathConfig: {
+        path: "remotion-only",
+        type: "text-video",
+        aspectRatio: state.aspectRatio,
+        text,
+      },
+    });
+
+    setState(chatId, { step: "processing", jobId });
+    pollAndDeliver(chatId, jobId);
+    return;
+  }
+
+  // Default: show path selection
+  if (text === "/start" || state.step === "idle") {
+    setState(chatId, { step: "path_selection" });
+    await sendMessage(
+      chatId,
+      "Welcome to <b>FlowMotion</b>! I can help you create videos in three ways."
+    );
+    await sendPathKeyboard(chatId);
+    return;
+  }
+
+  // If in an unexpected state, restart
+  await sendMessage(chatId, "Let's start fresh. What would you like to create?");
+  setState(chatId, { step: "path_selection" });
+  await sendPathKeyboard(chatId);
+}
+
+// ─── Photo/Video Message Handlers ───────────────────────────────────────────
+
+async function handlePhotoMessage(
+  chatId: number,
+  photo: { file_id: string }[]
+) {
+  const state = getState(chatId);
+
+  // Path B: Collecting images for slideshow
+  if (state.step === "b_collecting_images") {
+    const highRes = photo[photo.length - 1];
+
+    const fileRes = await fetch(`${API_BASE}/getFile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: highRes.file_id }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const fileData = (await fileRes.json()) as {
+      result?: { file_path?: string };
+    };
+    const filePath = fileData.result?.file_path;
+
+    if (filePath) {
+      const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+      const updatedImages = [...state.images, fileUrl];
+
+      setState(chatId, {
+        step: "b_collecting_images",
+        type: state.type,
+        aspectRatio: state.aspectRatio,
+        images: updatedImages,
+      });
+
+      await sendImageDoneKeyboard(chatId, updatedImages.length);
+    }
+    return;
+  }
+
+  // Not in image collection mode
+  await sendMessage(
+    chatId,
+    "To create an image slideshow, first select Remotion Video > Image Slideshow."
+  );
+}
+
+async function handleVideoMessage(
+  chatId: number,
+  video: { file_id: string }
+) {
+  const state = getState(chatId);
+
+  // Path C: User uploads video for editing
+  if (state.step === "c_awaiting_video") {
+    await sendMessage(chatId, "Downloading your video...");
+
+    const fileRes = await fetch(`${API_BASE}/getFile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: video.file_id }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const fileData = (await fileRes.json()) as {
+      result?: { file_path?: string; file_size?: number };
+    };
+    const filePath = fileData.result?.file_path;
+
+    if (!filePath) {
+      await sendMessage(chatId, "Failed to download video. Please try again.");
+      return;
+    }
+
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+
+    // Download to local /tmp for processing
+    const localPath = `/tmp/uploads/${Date.now()}-${filePath.split("/").pop()}`;
+    const { mkdir, writeFile } = await import("fs/promises");
+    await mkdir("/tmp/uploads", { recursive: true });
+
+    const videoResponse = await fetch(fileUrl, {
+      signal: AbortSignal.timeout(120_000),
+    });
+    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+    await writeFile(localPath, videoBuffer);
+
+    setState(chatId, {
+      step: "c_action_selection",
+      videoUrl: fileUrl,
+      videoLocalPath: localPath,
+    });
+
+    await sendMessage(chatId, "Video received! What would you like to do?");
+    await sendEditActionKeyboard(chatId);
+    return;
+  }
+
+  // Not in video upload mode
+  await sendMessage(
+    chatId,
+    "To edit a video, first select Upload & Edit from the menu."
+  );
+}
+
+// ─── Main Webhook Handler ───────────────────────────────────────────────────
+
+export async function handleTelegramUpdate(
+  update: Record<string, unknown>
+) {
+  // Handle callback queries (inline keyboard taps)
   if (update.callback_query) {
     const cq = update.callback_query as {
       id: string;
@@ -209,24 +587,12 @@ export async function handleTelegramUpdate(update: Record<string, unknown>) {
     const chatId = cq.message?.chat?.id;
     const data = cq.data;
 
-    if (!chatId || !data?.startsWith("template:")) {
+    if (!chatId || !data) {
       await answerCallbackQuery(cq.id);
       return;
     }
 
-    const templateId = data.replace("template:", "") as TemplateId;
-    await answerCallbackQuery(cq.id, `Selected: ${templateId}`);
-
-    const pending = pendingInputs.get(chatId);
-    if (!pending) {
-      await sendMessage(chatId, "No pending input found. Please send a prompt, YouTube URL, or GitHub URL first.");
-      return;
-    }
-
-    pendingInputs.delete(chatId);
-
-    // Process in background
-    processAndSendVideo(chatId, templateId, pending);
+    await handleCallback(chatId, cq.id, data);
     return;
   }
 
@@ -237,62 +603,47 @@ export async function handleTelegramUpdate(update: Record<string, unknown>) {
     chat: { id: number };
     text?: string;
     photo?: { file_id: string }[];
+    video?: { file_id: string };
+    document?: { file_id: string; mime_type?: string };
   };
 
   const chatId = message.chat.id;
 
-  // Handle image uploads: collect as assets
+  // Handle photo uploads
   if (message.photo && message.photo.length > 0) {
-    // Get the highest resolution photo
-    const photo = message.photo[message.photo.length - 1];
+    await handlePhotoMessage(chatId, message.photo);
+    return;
+  }
 
-    // Get file URL from Telegram
-    const fileRes = await fetch(`${API_BASE}/getFile`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_id: photo.file_id }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const fileData = await fileRes.json() as { result?: { file_path?: string } };
-    const filePath = fileData.result?.file_path;
+  // Handle video uploads
+  if (message.video) {
+    await handleVideoMessage(chatId, message.video);
+    return;
+  }
 
-    if (filePath) {
-      const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
-
-      const pending = pendingInputs.get(chatId);
-      if (pending) {
-        pending.assets.push(fileUrl);
-        await sendMessage(chatId, `Image added (${pending.assets.length} total). Send more images or a text prompt when ready.`);
-      } else {
-        pendingInputs.set(chatId, {
-          input: "",
-          inputType: "prompt",
-          assets: [fileUrl],
-        });
-        await sendMessage(chatId, "Image received. Send more images or a text prompt to continue.");
-      }
-    }
+  // Handle document uploads (video files sent as documents)
+  if (
+    message.document &&
+    message.document.mime_type?.startsWith("video/")
+  ) {
+    await handleVideoMessage(chatId, message.document);
     return;
   }
 
   // Handle text messages
   const text = message.text?.replace(/^\/start\s*/i, "").trim();
   if (!text) {
-    await sendMessage(chatId, "Send me a description, YouTube URL, or GitHub URL and I'll generate a video for you.");
+    await sendMessage(
+      chatId,
+      "Welcome to <b>FlowMotion</b>! Send /start to begin."
+    );
     return;
   }
 
-  const { type, url } = detectInputType(text);
+  // /start always resets
+  if (message.text?.trim() === "/start") {
+    resetState(chatId);
+  }
 
-  const existing = pendingInputs.get(chatId);
-  pendingInputs.set(chatId, {
-    input: text,
-    sourceUrl: url,
-    inputType: type,
-    assets: existing?.assets ?? [],
-  });
-
-  const sourceLabel = type === "youtube" ? "YouTube video" : type === "github" ? "GitHub repo" : "prompt";
-  await sendMessage(chatId, `Got your ${sourceLabel}. Now choose a template:`);
-  await sendTemplateKeyboard(chatId);
+  await handleTextMessage(chatId, text);
 }
