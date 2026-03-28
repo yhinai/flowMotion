@@ -1,15 +1,12 @@
 import { createJob, getJobStatus } from "@/queue/worker";
 import type {
   TemplateId,
-  SourceType,
   ConversationStep,
   VeoModel,
   AspectRatio,
   RemotionVideoType,
   EditAction,
 } from "./types";
-import { extractYouTubeId } from "./youtube";
-import { parseGitHubUrl } from "./github";
 
 const POLL_INTERVAL_MS = 5_000;
 const MAX_WAIT_MS = 10 * 60 * 1000;
@@ -20,7 +17,6 @@ const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 // ─── Conversation State Store ────────────────────────────────────────────────
 
 declare global {
-  // eslint-disable-next-line no-var
   var __conversations: Map<number, ConversationStep> | undefined;
 }
 

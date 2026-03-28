@@ -1236,21 +1236,11 @@ async function processPathAJob(
       transition: "cut",
     };
 
-    // Generate video clip and background music in parallel
-    const [clipPath, musicResult] = await Promise.all([
-      generateVideoClip(scene, {
-        model: modelId,
-        aspectRatio: config.aspectRatio,
-        resolution: "720p",
-      }),
-      generateMusic(
-        `Background music for: ${config.prompt.slice(0, 100)}`,
-        { durationSeconds: 8, mood: "cinematic", tempo: "medium" }
-      ).catch((err) => {
-        console.warn(`Music generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
-        return null;
-      }),
-    ]);
+    const clipPath = await generateVideoClip(scene, {
+      model: modelId,
+      aspectRatio: config.aspectRatio,
+      resolution: "720p",
+    });
 
     checkCancelled(jobId);
     await updateJobPersistent(jobId, {
@@ -1258,17 +1248,6 @@ async function processPathAJob(
       progress: 70,
       message: "Uploading video...",
     });
-
-    // Upload music if generated
-    let musicUrl: string | undefined;
-    if (musicResult) {
-      try {
-        const musicKey = generateKey(jobId, "music.wav");
-        musicUrl = await uploadFile(musicResult, musicKey);
-      } catch {
-        // Music upload failed — deliver video without music
-      }
-    }
 
     const downloadKey = generateKey(jobId, "final.mp4");
     const downloadUrl = await uploadFile(clipPath, downloadKey);
