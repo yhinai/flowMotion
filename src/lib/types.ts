@@ -264,12 +264,20 @@ export type RemotionVideoType = 'text-video' | 'image-slideshow';
 /** Edit actions for Path C */
 export type EditAction = 'add-captions' | 'remove-silence';
 
+/** Audio generation settings for narration and sound effects */
+export interface AudioSettings {
+  readonly narration?: boolean;
+  readonly sfx?: boolean;
+  readonly voiceId?: string;
+}
+
 /** Path A config: direct Veo video generation */
 export interface PathAConfig {
   readonly path: 'ai-video';
   readonly model: VeoModel;
   readonly aspectRatio: AspectRatio;
   readonly prompt: string;
+  readonly audio?: AudioSettings;
 }
 
 /** Path B config: Remotion-only compositions */
@@ -280,6 +288,7 @@ export interface PathBConfig {
   readonly duration?: number; // seconds
   readonly text?: string; // for text-video
   readonly images?: string[]; // for image-slideshow
+  readonly audio?: AudioSettings;
 }
 
 /** Path C config: upload and edit */
@@ -300,7 +309,11 @@ export type ConversationStep =
   // Path A states
   | { step: 'a_model_selection' }
   | { step: 'a_aspect_ratio'; model: VeoModel }
-  | { step: 'a_awaiting_prompt'; model: VeoModel; aspectRatio: AspectRatio }
+  | { step: 'a_style_selection'; model: VeoModel; aspectRatio: AspectRatio }
+  | { step: 'a_duration_selection'; model: VeoModel; aspectRatio: AspectRatio; style: string }
+  | { step: 'a_first_frame'; model: VeoModel; aspectRatio: AspectRatio; style: string; durationSeconds: 4 | 6 | 8 }
+  | { step: 'a_audio_strategy'; model: VeoModel; aspectRatio: AspectRatio; style: string; durationSeconds: 4 | 6 | 8; firstFrameImageUrl?: string }
+  | { step: 'a_awaiting_prompt'; model: VeoModel; aspectRatio: AspectRatio; style?: string; durationSeconds?: 4 | 6 | 8; firstFrameImageUrl?: string; audioStrategy?: 'native' | 'custom' }
   // Path B states
   | { step: 'b_type_selection' }
   | { step: 'b_aspect_ratio'; type: RemotionVideoType }

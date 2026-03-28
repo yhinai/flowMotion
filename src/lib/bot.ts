@@ -187,6 +187,61 @@ function sendEditActionKeyboard(chatId: number) {
   });
 }
 
+function sendStyleKeyboard(chatId: number) {
+  return sendMessage(chatId, "Choose a visual style:", {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Cinematic", callback_data: "style:cinematic" },
+          { text: "Anime", callback_data: "style:anime" },
+        ],
+        [
+          { text: "Realistic", callback_data: "style:realistic" },
+          { text: "Abstract", callback_data: "style:abstract" },
+        ],
+        [{ text: "TikTok", callback_data: "style:tiktok" }],
+      ],
+    },
+  });
+}
+
+function sendDurationKeyboard(chatId: number) {
+  return sendMessage(chatId, "Choose video duration:", {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "4s", callback_data: "dur:4" },
+          { text: "6s", callback_data: "dur:6" },
+          { text: "8s", callback_data: "dur:8" },
+        ],
+      ],
+    },
+  });
+}
+
+function sendFirstFrameKeyboard(chatId: number) {
+  return sendMessage(chatId, "First frame option:", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Upload Image", callback_data: "ff:upload" }],
+        [{ text: "Generate with AI", callback_data: "ff:generate" }],
+        [{ text: "Skip", callback_data: "ff:skip" }],
+      ],
+    },
+  });
+}
+
+function sendAudioStrategyKeyboard(chatId: number) {
+  return sendMessage(chatId, "Audio strategy:", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Veo 3 Native Audio", callback_data: "audio:native" }],
+        [{ text: "Custom Audio Mix", callback_data: "audio:custom" }],
+      ],
+    },
+  });
+}
+
 function sendImageDoneKeyboard(chatId: number, count: number) {
   return sendMessage(
     chatId,
@@ -284,16 +339,88 @@ async function handleCallback(
     return;
   }
 
-  // Path A: Aspect ratio
+  // Path A: Aspect ratio → style selection
   if (data.startsWith("ar:") && state.step === "a_aspect_ratio") {
     const validAspectRatios: AspectRatio[] = ["16:9", "9:16"];
     const aspectRatio = data.replace("ar:", "");
     if (!validAspectRatios.includes(aspectRatio as AspectRatio)) return;
     await answerCallbackQuery(callbackQueryId, `Aspect ratio: ${aspectRatio}`);
     setState(chatId, {
-      step: "a_awaiting_prompt",
+      step: "a_style_selection",
       model: state.model,
       aspectRatio: aspectRatio as AspectRatio,
+    });
+    await sendStyleKeyboard(chatId);
+    return;
+  }
+
+  // Path A: Style selection → duration
+  if (data.startsWith("style:") && state.step === "a_style_selection") {
+    const style = data.replace("style:", "");
+    await answerCallbackQuery(callbackQueryId, `Style: ${style}`);
+    setState(chatId, {
+      step: "a_duration_selection",
+      model: state.model,
+      aspectRatio: state.aspectRatio,
+      style,
+    });
+    await sendDurationKeyboard(chatId);
+    return;
+  }
+
+  // Path A: Duration selection → first frame
+  if (data.startsWith("dur:") && state.step === "a_duration_selection") {
+    const validDurations = [4, 6, 8] as const;
+    const dur = parseInt(data.replace("dur:", ""), 10) as 4 | 6 | 8;
+    if (!validDurations.includes(dur)) return;
+    await answerCallbackQuery(callbackQueryId, `Duration: ${dur}s`);
+    setState(chatId, {
+      step: "a_first_frame",
+      model: state.model,
+      aspectRatio: state.aspectRatio,
+      style: state.style,
+      durationSeconds: dur,
+    });
+    await sendFirstFrameKeyboard(chatId);
+    return;
+  }
+
+  // Path A: First frame selection → audio strategy
+  if (data.startsWith("ff:") && state.step === "a_first_frame") {
+    const choice = data.replace("ff:", "");
+    await answerCallbackQuery(callbackQueryId, `First frame: ${choice}`);
+
+    if (choice === "upload") {
+      // Stay in a_first_frame state waiting for image upload
+      await sendMessage(chatId, "Send me an image to use as the first frame.");
+      return;
+    }
+
+    // "generate" or "skip" — proceed to audio strategy
+    setState(chatId, {
+      step: "a_audio_strategy",
+      model: state.model,
+      aspectRatio: state.aspectRatio,
+      style: state.style,
+      durationSeconds: state.durationSeconds,
+      firstFrameImageUrl: choice === "generate" ? "__ai_generate__" : undefined,
+    });
+    await sendAudioStrategyKeyboard(chatId);
+    return;
+  }
+
+  // Path A: Audio strategy → awaiting prompt
+  if (data.startsWith("audio:") && state.step === "a_audio_strategy") {
+    const strategy = data.replace("audio:", "") as "native" | "custom";
+    await answerCallbackQuery(callbackQueryId, `Audio: ${strategy}`);
+    setState(chatId, {
+      step: "a_awaiting_prompt",
+      model: state.model,
+      aspectRatio: state.aspectRatio,
+      style: state.style,
+      durationSeconds: state.durationSeconds,
+      firstFrameImageUrl: state.firstFrameImageUrl,
+      audioStrategy: strategy,
     });
     await sendMessage(
       chatId,
@@ -423,9 +550,11 @@ async function handleTextMessage(chatId: number, text: string) {
 
   // Path A: User sends prompt
   if (state.step === "a_awaiting_prompt") {
+    const styleSuffix = state.style ? ` | ${state.style}` : "";
+    const durSuffix = state.durationSeconds ? ` | ${state.durationSeconds}s` : "";
     await sendMessage(
       chatId,
-      `Generating video with ${state.model === "veo-3" ? "Veo 3" : "Veo 3.1"} (${state.aspectRatio})...\nThis takes 2-5 minutes.`
+      `Generating video with ${state.model === "veo-3" ? "Veo 3" : "Veo 3.1"} (${state.aspectRatio}${styleSuffix}${durSuffix})...\nThis takes 2-5 minutes.`
     );
 
     const jobId = createJob(text, "720p", 1, {
@@ -490,6 +619,39 @@ async function handlePhotoMessage(
   photo: { file_id: string }[]
 ) {
   const state = getState(chatId);
+
+  // Path A: First frame image upload
+  if (state.step === "a_first_frame") {
+    const highRes = photo[photo.length - 1];
+    const fileRes = await fetch(`${API_BASE}/getFile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: highRes.file_id }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const fileData = (await fileRes.json()) as {
+      result?: { file_path?: string };
+    };
+    const filePath = fileData.result?.file_path;
+
+    if (!filePath) {
+      await sendMessage(chatId, "Failed to process image. Please try again.");
+      return;
+    }
+
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+    setState(chatId, {
+      step: "a_audio_strategy",
+      model: state.model,
+      aspectRatio: state.aspectRatio,
+      style: state.style,
+      durationSeconds: state.durationSeconds,
+      firstFrameImageUrl: fileUrl,
+    });
+    await sendMessage(chatId, "First frame image received!");
+    await sendAudioStrategyKeyboard(chatId);
+    return;
+  }
 
   // Path B: Collecting images for slideshow
   if (state.step === "b_collecting_images") {
