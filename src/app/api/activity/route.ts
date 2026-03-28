@@ -1,40 +1,27 @@
 /**
  * GET /api/activity
  *
- * Returns hourly video generation counts for the past 7 days.
- * Each data point represents one hour: { datetime: "YYYY-MM-DDTHH", count: number }
+ * Returns daily video generation counts for the past 30 days.
  * Reads mp4 uploads from DigitalOcean Spaces; falls back to seeded demo data.
  */
 
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 export interface ActivityDataPoint {
-  datetime: string; // "YYYY-MM-DDTHH" (hour bucket)
+  date: string; // "YYYY-MM-DD"
   count: number;
 }
 
 function getDemoData(): ActivityDataPoint[] {
   const now = new Date();
   const data: ActivityDataPoint[] = [];
-
   for (let day = 29; day >= 0; day--) {
-    for (let hour = 0; hour < 24; hour++) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - day);
-      d.setHours(hour, 0, 0, 0);
-
-      const isFuture = day === 0 && hour > now.getHours();
-
-      let count = 0;
-      if (!isFuture && Math.random() < 0.25) {
-        count = 1 + Math.floor(Math.random() * 7);
-      }
-
-      const dateStr = `${d.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
-      data.push({ datetime: dateStr, count });
-    }
+    const d = new Date(now);
+    d.setDate(d.getDate() - day);
+    const dateStr = d.toISOString().split("T")[0];
+    const count = Math.random() < 0.25 ? 1 + Math.floor(Math.random() * 7) : 0;
+    data.push({ date: dateStr, count });
   }
-
   return data;
 }
 
@@ -48,13 +35,10 @@ function isConfigured() {
 }
 
 export async function GET() {
-  if (!isConfigured()) {
-    return Response.json(getDemoData());
-  }
+  if (!isConfigured()) return Response.json(getDemoData());
 
   const region = process.env.DO_SPACES_REGION!;
   const bucket = process.env.DO_SPACES_BUCKET!;
-
   const client = new S3Client({
     endpoint: `https://${region}.digitaloceanspaces.com`,
     region: "us-east-1",
@@ -66,51 +50,35 @@ export async function GET() {
   });
 
   try {
-    const countsByHour: Record<string, number> = {};
+    const countsByDate: Record<string, number> = {};
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
     let continuationToken: string | undefined;
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 30);
 
     do {
       const res = await client.send(
-        new ListObjectsV2Command({
-          Bucket: bucket,
-          Prefix: "jobs/",
-          MaxKeys: 1000,
-          ContinuationToken: continuationToken,
-        })
+        new ListObjectsV2Command({ Bucket: bucket, Prefix: "jobs/", MaxKeys: 1000, ContinuationToken: continuationToken })
       );
-
       for (const obj of res.Contents ?? []) {
-        if (!obj.LastModified || !obj.Key?.endsWith(".mp4")) continue;
-        if (obj.LastModified < sevenDaysAgo) continue;
-        const d = obj.LastModified;
-        const key = `${d.toISOString().slice(0, 10)}T${String(d.getUTCHours()).padStart(2, "0")}`;
-        countsByHour[key] = (countsByHour[key] ?? 0) + 1;
+        if (!obj.LastModified || !obj.Key?.endsWith(".mp4") || obj.LastModified < cutoff) continue;
+        const dateStr = obj.LastModified.toISOString().split("T")[0];
+        countsByDate[dateStr] = (countsByDate[dateStr] ?? 0) + 1;
       }
-
       continuationToken = res.NextContinuationToken;
     } while (continuationToken);
 
-    // Build full 7-day × 24-hour series
     const now = new Date();
+    const demo = getDemoData();
     const result: ActivityDataPoint[] = [];
     for (let day = 29; day >= 0; day--) {
-      for (let hour = 0; hour < 24; hour++) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - day);
-        const dateStr = `${d.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
-        result.push({ datetime: dateStr, count: countsByHour[dateStr] ?? 0 });
-      }
+      const d = new Date(now);
+      d.setDate(d.getDate() - day);
+      const dateStr = d.toISOString().split("T")[0];
+      const realCount = countsByDate[dateStr] ?? 0;
+      const demoCount = demo[29 - day]?.count ?? 0;
+      result.push({ date: dateStr, count: realCount + demoCount });
     }
-
-    // Always merge demo data so the heatmap looks active during demos
-    const demo = getDemoData();
-    const merged = result.map((p, i) => ({
-      ...p,
-      count: p.count + (demo[i]?.count ?? 0),
-    }));
-    return Response.json(merged);
+    return Response.json(result);
   } catch {
     return Response.json(getDemoData());
   }
