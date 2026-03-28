@@ -42,10 +42,9 @@ export default function ActivityHeatmap() {
 
   if (data.length === 0) return null;
 
-  // Group into 7 days × 24 hours grid
-  // data is ordered: [day6_h0, day6_h1, ..., day0_h23]
+  // Group into 30 days × 24 hours grid
   const days: ActivityDataPoint[][] = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 30; i++) {
     days.push(data.slice(i * 24, (i + 1) * 24));
   }
 
@@ -66,7 +65,7 @@ export default function ActivityHeatmap() {
           <span className="text-[10px] font-mono text-white/25 border border-white/10 rounded px-1.5 py-0.5">
             assistant-ui / heat-graph
           </span>
-          <span className="text-[10px] text-white/25">last 7 days · by hour</span>
+          <span className="text-[10px] text-white/25">last 30 days · by hour</span>
         </div>
         <div className="flex items-center gap-4 text-xs text-white/40">
           <span><span className="text-white/70 font-medium">{totalVideos}</span> videos</span>

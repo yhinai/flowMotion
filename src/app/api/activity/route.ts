@@ -17,21 +17,17 @@ function getDemoData(): ActivityDataPoint[] {
   const now = new Date();
   const data: ActivityDataPoint[] = [];
 
-  for (let day = 6; day >= 0; day--) {
+  for (let day = 29; day >= 0; day--) {
     for (let hour = 0; hour < 24; hour++) {
       const d = new Date(now);
       d.setDate(d.getDate() - day);
       d.setHours(hour, 0, 0, 0);
 
-      const isPeak = hour >= 9 && hour <= 22;
       const isFuture = day === 0 && hour > now.getHours();
 
       let count = 0;
-      if (!isFuture) {
-        const chance = isPeak ? 0.75 : 0.35;
-        if (Math.random() < chance) {
-          count = 1 + Math.floor(Math.random() * 7);
-        }
+      if (!isFuture && Math.random() < 0.25) {
+        count = 1 + Math.floor(Math.random() * 7);
       }
 
       const dateStr = `${d.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
@@ -73,7 +69,7 @@ export async function GET() {
     const countsByHour: Record<string, number> = {};
     let continuationToken: string | undefined;
     const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 30);
 
     do {
       const res = await client.send(
@@ -99,7 +95,7 @@ export async function GET() {
     // Build full 7-day × 24-hour series
     const now = new Date();
     const result: ActivityDataPoint[] = [];
-    for (let day = 6; day >= 0; day--) {
+    for (let day = 29; day >= 0; day--) {
       for (let hour = 0; hour < 24; hour++) {
         const d = new Date(now);
         d.setDate(d.getDate() - day);
