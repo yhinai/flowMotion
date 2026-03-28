@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Serif, Manrope, Geist } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -36,7 +37,7 @@ export default function RootLayout({
       className={cn("h-full", notoSerif.variable, manrope.variable, "font-sans", geist.variable)}
     >
       <body className="min-h-full flex flex-col">
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
   );
