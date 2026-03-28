@@ -1669,11 +1669,11 @@ async function processPathAJob(
 
     // Map user model names to API model IDs
     const modelMap: Record<string, string> = {
-      "veo-3": "veo-3.0-generate-preview",
-      "veo-3-fast": "veo-3.0-fast-generate-preview",
-      "veo-3.1": "veo-3.1-fast-generate-preview",
+      "veo-3": "veo-3.0-generate-001",
+      "veo-3-fast": "veo-3.0-fast-generate-001",
+      "veo-3.1": "veo-3.1-generate-preview",
     };
-    const modelId = modelMap[config.model] ?? "veo-3.1-fast-generate-preview";
+    const modelId = modelMap[config.model] ?? "veo-3.1-generate-preview";
 
     // Build visual description with optional style as negative prompt hint
     const visualDescription = config.style
@@ -2038,34 +2038,20 @@ async function processPathBJob(
         // Check for repo slides mode
         if (config.text?.startsWith("__REPO_SLIDES__:")) {
           const repoUrl = config.text.replace("__REPO_SLIDES__:", "");
-          console.log(`[RepoSlides] ========== START ==========`);
-          console.log(`[RepoSlides] Job: ${jobId}`);
-          console.log(`[RepoSlides] Repo URL: ${repoUrl}`);
 
           await updateJobPersistent(jobId, {
             progress: 10,
             message: "Analyzing GitHub repository...",
           });
 
-          console.log(`[RepoSlides] Step 1: Fetching repo data from GitHub API...`);
           const { analyzeRepo } = await import("@/lib/github");
           const ghAnalysis = await analyzeRepo(repoUrl);
-          console.log(`[RepoSlides] Step 1 DONE: ${ghAnalysis.metadata.name}`);
-          console.log(`[RepoSlides]   Stars: ${ghAnalysis.metadata.stars}`);
-          console.log(`[RepoSlides]   Language: ${ghAnalysis.metadata.language}`);
-          console.log(`[RepoSlides]   Files: ${ghAnalysis.stats.totalFiles}`);
-          console.log(`[RepoSlides]   Dirs: ${ghAnalysis.stats.totalDirs}`);
-          console.log(`[RepoSlides]   Contributors: ${ghAnalysis.contributors.length}`);
-          console.log(`[RepoSlides]   Recent commits: ${ghAnalysis.recentCommits.length}`);
-          console.log(`[RepoSlides]   Key files: ${Object.keys(ghAnalysis.keyFiles).join(", ")}`);
-          console.log(`[RepoSlides]   Languages: ${JSON.stringify(ghAnalysis.languages)}`);
 
           checkCancelled(jobId);
           await updateJobPersistent(jobId, {
             progress: 30,
             message: "Generating slide content with AI...",
           });
-          console.log(`[RepoSlides] Step 2: Generating slides with Gemini...`);
 
           // Map github.ts RepoAnalysis -> repo-slides.ts RepoAnalysis
           const repoSlidesAnalysis = {
@@ -2113,26 +2099,15 @@ async function processPathBJob(
 
           const { generateRepoSlides } = await import("@/lib/repo-slides");
           const slideshow = await generateRepoSlides(repoSlidesAnalysis);
-          console.log(`[RepoSlides] Step 2 DONE: ${slideshow.slides.length} slides generated`);
-          slideshow.slides.forEach((s, i) => {
-            console.log(`[RepoSlides]   Slide ${i + 1}: [${s.type}] ${s.title}`);
-          });
 
           checkCancelled(jobId);
           await updateJobPersistent(jobId, {
             progress: 50,
             message: `Rendering ${slideshow.slides.length} slides...`,
           });
-          console.log(`[RepoSlides] Step 3: Rendering ${slideshow.slides.length} slides with Remotion...`);
 
           // Convert slides to text lines for TextVideo composition
-          // Cap total video at 60 seconds max
-          const MAX_VIDEO_SECONDS = 60;
-          const SECONDS_PER_SLIDE = 4;
-          const maxSlides = Math.floor(MAX_VIDEO_SECONDS / SECONDS_PER_SLIDE); // 15
-          const cappedSlides = slideshow.slides.slice(0, maxSlides);
-
-          const lines = cappedSlides.map((slide) => {
+          const lines = slideshow.slides.map((slide) => {
             if (slide.type === "title") {
               return `${slide.title}${slide.subtitle ? "\n" + slide.subtitle : ""}`;
             }
@@ -2148,17 +2123,18 @@ async function processPathBJob(
             return slide.title;
           });
 
-          const totalDuration = lines.length * SECONDS_PER_SLIDE;
-          console.log(`[RepoSlides] Rendering to: ${outputPath}`);
-          console.log(`[RepoSlides] Slides: ${lines.length}, Duration: ${totalDuration}s (max ${MAX_VIDEO_SECONDS}s)`);
+          // Cap total video at 90 seconds max
+          const MAX_VIDEO_SECONDS = 90;
+          const SECONDS_PER_SLIDE = 5;
+          const maxSlides = Math.floor(MAX_VIDEO_SECONDS / SECONDS_PER_SLIDE);
+          const cappedLines = lines.slice(0, maxSlides);
+          console.log(`[RepoSlides] Slides: ${cappedLines.length}/${lines.length}, Duration: ${cappedLines.length * SECONDS_PER_SLIDE}s (max ${MAX_VIDEO_SECONDS}s)`);
 
           await renderTextVideo(
-            lines.join("\n"),
+            cappedLines.join("\n"),
             { aspectRatio: config.aspectRatio, duration: SECONDS_PER_SLIDE, musicUrl },
             outputPath
           );
-          console.log(`[RepoSlides] Step 3 DONE: Render complete`);
-          console.log(`[RepoSlides] ========== RENDER FINISHED ==========`);
           break;
         }
 
@@ -2378,7 +2354,6 @@ async function processPathBJob(
     }
 
     // ── Step 7: File Size Check + Upload ────────────────────────────────────
-    console.log(`[PathB] Step 7: Upload — finalVideoPath=${finalVideoPath}`);
     await updateJobPersistent(jobId, {
       stage: "uploading_assets",
       progress: 85,
@@ -2386,11 +2361,8 @@ async function processPathBJob(
     });
 
     const uploadReadyPath = await ensureFileSizeLimit(finalVideoPath, jobId);
-    console.log(`[PathB] Upload ready path: ${uploadReadyPath}`);
     const downloadKey = generateKey(jobId, "final.mp4");
-    console.log(`[PathB] Upload key: ${downloadKey}`);
     const downloadUrl = await uploadFile(uploadReadyPath, downloadKey);
-    console.log(`[PathB] Upload SUCCESS — downloadUrl: ${downloadUrl}`);
 
     await updateJobPersistent(jobId, {
       stage: "completed",
@@ -2398,9 +2370,7 @@ async function processPathBJob(
       message: "Video created successfully",
       downloadUrl,
     });
-    console.log(`[PathB] Job ${jobId} COMPLETED`);
   } catch (error) {
-    console.error(`[PathB] Job ${jobId} FAILED:`, error);
     await updateJobPersistent(jobId, {
       stage: "failed",
       message: errorMessage(error),

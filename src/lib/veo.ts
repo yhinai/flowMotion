@@ -39,7 +39,7 @@ const STYLE_PREFIX_MAP: Record<VideoStyle, string> = {
   social: "Social media optimized, vibrant and engaging style:",
 };
 
-const DEFAULT_MODEL = "veo-3.1-fast-generate-preview";
+const DEFAULT_MODEL = "veo-3.1-generate-preview";
 const POLL_INTERVAL_MS = 10_000;
 const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const CLIP_DIR = "/tmp/veo-clips";

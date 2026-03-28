@@ -25,7 +25,12 @@ import type {
   AudioStrategy,
   FirstFrameOption,
   OverlayConfig,
+  AutoDecision,
+  ExtractedContent,
+  PathConfig,
 } from "./types";
+import { detectInputType, extractContent } from "./auto-mode";
+import { makeAutoDecisions, refineAutoDecision } from "./auto-decisions";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -37,6 +42,12 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // ─── Conversation State Store ───────────────────────────────────────────────
+
+/** Stores auto-mode reasoning per chat until post-delivery */
+const pendingAutoReasoning = new Map<number, string>();
+
+/** Stores last auto-mode decision per chat for follow-up refinement */
+const pendingAutoDecision = new Map<number, { decision: AutoDecision; content: ExtractedContent }>();
 
 declare global {
   var __conversations: Map<number, ConversationStep> | undefined;
@@ -88,77 +99,11 @@ async function sendMessage(
   }
 }
 
-/**
- * Extract local file path from a localhost download URL.
- * Returns the path if it's a local URL, null otherwise.
- */
-function extractLocalPath(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-      const filePath = parsed.searchParams.get("path");
-      if (filePath && filePath.startsWith("/tmp/")) return filePath;
-    }
-  } catch { /* not a valid URL */ }
-  return null;
-}
-
-/**
- * Upload a local file directly to Telegram via multipart form-data.
- */
-async function sendVideoFromDisk(
-  chatId: number,
-  filePath: string,
-  caption?: string,
-): Promise<boolean> {
-  try {
-    const { readFile } = await import("fs/promises");
-    const fileBuffer = await readFile(filePath);
-    const fileName = filePath.split("/").pop() ?? "video.mp4";
-
-    const form = new FormData();
-    form.append("chat_id", String(chatId));
-    form.append("video", new Blob([fileBuffer], { type: "video/mp4" }), fileName);
-    if (caption) form.append("caption", caption);
-    form.append("supports_streaming", "true");
-
-    console.log(`[Bot] Uploading ${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB video directly to Telegram...`);
-    const res = await fetch(`${API_BASE}/sendVideo`, {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(120_000),
-    });
-
-    if (res.ok) {
-      console.log("[Bot] Direct file upload to Telegram SUCCESS");
-      return true;
-    }
-
-    const err = await res.json().catch(() => ({}));
-    console.warn(`[Bot] Direct upload failed (HTTP ${res.status}):`, err);
-    return false;
-  } catch (err) {
-    console.warn("[Bot] Direct upload failed:", err);
-    return false;
-  }
-}
-
 async function sendVideo(
   chatId: number,
   videoUrl: string,
   caption?: string,
 ): Promise<void> {
-  // If it's a local URL, upload the file directly from disk
-  const localPath = extractLocalPath(videoUrl);
-  if (localPath) {
-    console.log(`[Bot] Detected local file: ${localPath} — uploading directly`);
-    const ok = await sendVideoFromDisk(chatId, localPath, caption);
-    if (ok) return;
-    // If direct upload fails, fall through to text link
-    await sendMessage(chatId, `Your video is ready! Download it here:\n(File: ${localPath.split("/").pop()})`);
-    return;
-  }
-
   const MAX_RETRIES = 4;
   const RETRY_DELAY_MS = 5_000;
 
@@ -213,6 +158,22 @@ async function answerCallbackQuery(
   }
 }
 
+async function sendChatAction(
+  chatId: number,
+  action: "typing" | "upload_video" | "upload_photo" | "upload_document" = "typing",
+): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/sendChatAction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, action }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Non-critical — silently ignore
+  }
+}
+
 async function getTelegramFileUrl(fileId: string): Promise<string | null> {
   try {
     const fileRes = await fetch(`${API_BASE}/getFile`, {
@@ -243,6 +204,7 @@ function sendPathKeyboard(chatId: number) {
     chatId,
     "What would you like to create?",
     inlineKeyboard([
+      [{ text: "\u{1F916} Auto Mode (Just send anything!)", callback_data: "path:auto" }],
       [{ text: "AI Video (Veo)", callback_data: "path:ai-video" }],
       [{ text: "Remotion Video", callback_data: "path:remotion-only" }],
       [{ text: "Upload & Edit", callback_data: "path:upload-edit" }],
@@ -664,7 +626,7 @@ async function pollAndDeliver(
   preJobPayload?: PreJobPayload,
 ): Promise<void> {
   const start = Date.now();
-  let lastMessage = "";
+  let lastStage = "";
 
   while (Date.now() - start < MAX_WAIT_MS) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -672,12 +634,20 @@ async function pollAndDeliver(
     const status = getJobStatus(jobId);
     if (!status) continue;
 
-    // Send real-time updates whenever the message changes
-    if (status.message && status.message !== lastMessage) {
-      lastMessage = status.message;
-      const pct = status.progress ?? 0;
-      const bar = progressBar(pct);
-      await sendMessage(chatId, `${bar} ${pct}%\n${status.message}`);
+    // Keep Telegram showing the bot as active
+    await sendChatAction(chatId, "upload_video");
+
+    if (status.stage !== lastStage) {
+      lastStage = status.stage;
+      const stageLabel: Record<string, string> = {
+        generating_script: "\u{270D}\uFE0F Writing script...",
+        generating_clips: "\u{1F3AC} Generating video clips...",
+        uploading_assets: "\u{2601}\uFE0F Uploading assets...",
+        composing_video: "\u{1F3AC} Composing final video...",
+      };
+      if (stageLabel[status.stage]) {
+        await sendMessage(chatId, stageLabel[status.stage]);
+      }
     }
 
     if (status.stage === "completed" && status.downloadUrl) {
@@ -697,12 +667,6 @@ async function pollAndDeliver(
 
   await sendMessage(chatId, "Generation timed out. Please try again.");
   resetState(chatId);
-}
-
-function progressBar(pct: number): string {
-  const filled = Math.round(pct / 10);
-  const empty = 10 - filled;
-  return "[" + "\u2588".repeat(filled) + "\u2591".repeat(empty) + "]";
 }
 
 async function deliverVideo(
@@ -735,11 +699,46 @@ async function deliverVideo(
     await sendMessage(chatId, `Download your video:\n${downloadUrl}`);
   }
 
+  // Show auto-mode reasoning after delivery (not before generation)
+  const reasoning = pendingAutoReasoning.get(chatId);
+  if (reasoning) {
+    await sendMessage(chatId, `\u{1F4A1} Why I chose this: ${reasoning}`);
+    pendingAutoReasoning.delete(chatId);
+  }
+
+  // Show contextual suggestions based on what was generated
+  if (preJobPayload?.pathConfig) {
+    const config = preJobPayload.pathConfig;
+    const suggestions: string[] = [];
+
+    if ("aspectRatio" in config) {
+      if (config.aspectRatio === "16:9") {
+        suggestions.push("Want a vertical version for TikTok? Just say 'make it vertical'");
+      } else if (config.aspectRatio === "9:16") {
+        suggestions.push("Want a landscape version? Just say 'make it landscape'");
+      }
+    }
+
+    if ("sharedAudio" in config && !config.sharedAudio?.captionStyle) {
+      suggestions.push("Say 'add captions' to make it accessible");
+    }
+
+    if (suggestions.length > 0) {
+      await sendMessage(chatId, "\u{1F4AC} " + suggestions.join("\n\u{1F4AC} "));
+    }
+  }
+
+  const autoContext = pendingAutoDecision.get(chatId);
+  pendingAutoDecision.delete(chatId);
+
   setState(chatId, {
     step: "post_delivery",
     jobId,
     downloadUrl,
     preJobPayload,
+    autoReasoning: reasoning,
+    lastDecision: autoContext?.decision,
+    lastExtractedContent: autoContext?.content,
   });
   await sendPostDeliveryKeyboard(chatId);
 }
@@ -818,7 +817,13 @@ async function handleCallback(
     const path = data.replace("path:", "");
     await answerCallbackQuery(callbackQueryId, `Selected: ${path}`);
 
-    if (path === "ai-video") {
+    if (path === "auto") {
+      setState(chatId, { step: "auto_awaiting_input" });
+      await sendMessage(
+        chatId,
+        "\u{1F916} Auto Mode activated! Send me anything:\n\n\u2022 GitHub repo URL\n\u2022 YouTube video link\n\u2022 Any website URL\n\u2022 A video file\n\u2022 Or just describe what you want\n\nI'll analyze it and create the perfect video autonomously.",
+      );
+    } else if (path === "ai-video") {
       setState(chatId, { step: "a_model_selection" });
       await sendModelKeyboard(chatId);
     } else if (path === "remotion-only") {
@@ -1710,18 +1715,114 @@ async function dispatchPathCJob(
   );
 }
 
-// ─── Text Message Handler ──────────────────────────────────────────────────
+// ─── Contextual Progress Messages ─────────────────────────────────────────
 
-async function handleTextMessage(chatId: number, text: string): Promise<void> {
-  const state = getState(chatId);
+function getAnalyzingMessage(content: ExtractedContent): string {
+  switch (content.inputType) {
+    case "github":
+      return `\u{1F4E6} Reading repository...`;
+    case "youtube":
+      return `\u{1F4FA} Analyzing video...`;
+    case "website":
+      return `\u{1F310} Scanning page...`;
+    case "video":
+      return `\u{1F39E}\uFE0F Processing your video...`;
+    case "text":
+    default:
+      return `\u{2728} Bringing your idea to life...`;
+  }
+}
 
-  // ── GitHub repo URL → auto-generate repo slides (highest priority) ──
-  const GITHUB_URL_RE = /https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)/;
-  const ghMatch = text.match(GITHUB_URL_RE);
-  if (ghMatch) {
-    const repoUrl = ghMatch[0];
-    await sendMessage(chatId, `Analyzing GitHub repo: <b>${ghMatch[1]}/${ghMatch[2]}</b>\nGenerating slide presentation...`);
+function getGeneratingMessage(content: ExtractedContent, decision: AutoDecision): string {
+  switch (content.inputType) {
+    case "github": {
+      const repoName = content.metadata?.repo ?? content.title;
+      return `\u{1F3AC} Crafting video about ${repoName}...`;
+    }
+    case "youtube":
+      return `\u{1F3AC} Creating summary of '${content.title}'...`;
+    case "website": {
+      const hostname = content.metadata?.hostname ?? content.title;
+      return `\u{1F3AC} Building video about ${hostname}...`;
+    }
+    case "video":
+      return `\u{1F3AC} Editing your video...`;
+    case "text":
+    default:
+      return `\u{1F3AC} Generating your video...`;
+  }
+}
 
+function getEstimatedTime(pathType: "path-a" | "path-b" | "path-c"): string {
+  switch (pathType) {
+    case "path-a":
+      return "\u{23F3} Estimated time: 3-5 minutes";
+    case "path-b":
+      return "\u{23F3} Estimated time: ~30 seconds";
+    case "path-c":
+      return "\u{23F3} Estimated time: 1-2 minutes";
+  }
+}
+
+function getPostDeliverySuggestions(decision: AutoDecision): string {
+  const suggestions: string[] = [];
+
+  if (decision.aspectRatio === "16:9") {
+    suggestions.push("Want a vertical version for TikTok? Just say 'make it vertical'");
+  } else if (decision.aspectRatio === "9:16") {
+    suggestions.push("Want a landscape version? Just say 'make it landscape'");
+  }
+
+  if (!decision.captions.needed) {
+    suggestions.push("Say 'add captions' to make it accessible");
+  }
+
+  if (!decision.music.needed) {
+    suggestions.push("Say 'add music' to add a soundtrack");
+  }
+
+  if (suggestions.length === 0) return "";
+  return "\n\n\u{1F4AC} " + suggestions.join("\n\u{1F4AC} ");
+}
+
+// ─── Auto Mode Helpers ────────────────────────────────────────────────────
+
+function buildSharedAudioFromDecision(decision: AutoDecision): SharedAudioOptions {
+  return {
+    narration: decision.narration.needed
+      ? {
+          voiceId: decision.narration.voice,
+          model: decision.narration.voiceModel,
+          script: decision.narration.script,
+          speed: decision.narration.speed,
+        }
+      : undefined,
+    music: decision.music.needed
+      ? {
+          genre: decision.music.genre,
+          mood: decision.music.mood,
+          lyriaModel: decision.music.lyriaModel,
+        }
+      : undefined,
+    sfx: decision.sfx.needed && decision.sfx.descriptions.length > 0
+      ? { description: decision.sfx.descriptions.join("; ") }
+      : undefined,
+    captionStyle: decision.captions.needed ? decision.captions.style : undefined,
+  };
+}
+
+// ─── Auto Mode Dispatch ───────────────────────────────────────────────────
+
+async function dispatchAutoDecision(
+  chatId: number,
+  decision: AutoDecision,
+  extractedContent: ExtractedContent,
+): Promise<void> {
+  const sharedAudio = buildSharedAudioFromDecision(decision);
+
+  // GitHub repos → always use repo slides (Path B text-video with __REPO_SLIDES__ marker)
+  if (extractedContent.inputType === "github" && extractedContent.metadata?.owner && extractedContent.metadata?.repo) {
+    const repoUrl = `https://github.com/${extractedContent.metadata.owner}/${extractedContent.metadata.repo}`;
     const jobId = createJob(repoUrl, "1080p", 10, {
       pathType: "path-b",
       pathConfig: {
@@ -1729,13 +1830,163 @@ async function handleTextMessage(chatId: number, text: string): Promise<void> {
         type: "text-video",
         aspectRatio: "16:9" as const,
         text: `__REPO_SLIDES__:${repoUrl}`,
+        sharedAudio,
       },
     });
 
+    const preJobPayload: PreJobPayload = {
+      prompt: decision.prompt,
+      pathType: "path-b",
+      pathConfig: {
+        path: "remotion-only",
+        type: "text-video",
+        aspectRatio: "16:9" as const,
+        text: `__REPO_SLIDES__:${repoUrl}`,
+        sharedAudio,
+      },
+    };
+
     setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId).catch((err) =>
-      console.error("pollAndDeliver failed:", err)
+    pollAndDeliver(chatId, jobId, preJobPayload).catch((err) =>
+      console.error("pollAndDeliver failed:", err),
     );
+    return;
+  }
+
+  // Build the appropriate PathConfig based on the decision
+  let pathConfig: PathConfig;
+  let pathType: "path-a" | "path-b" | "path-c";
+
+  if (decision.path === "upload-edit") {
+    pathType = "path-c";
+    pathConfig = {
+      path: "upload-edit",
+      action: decision.captions.needed ? "add-captions" : "remove-silence",
+      actions: (() => {
+        const sel: EditAction[] = [
+          ...(decision.captions.needed ? ["add-captions" as const] : []),
+          ...(decision.music.needed ? ["add-music" as const] : []),
+          ...(decision.narration.needed ? ["add-narration" as const] : []),
+          ...(decision.sfx.needed ? ["add-sfx" as const] : []),
+        ];
+        return sel.length > 0 ? sel : ["add-captions" as const, "remove-silence" as const];
+      })(),
+      videoUrl: extractedContent.videoUrl ?? "",
+      videoLocalPath: extractedContent.videoLocalPath ?? "",
+      narrationConfig: sharedAudio.narration,
+      musicConfig: sharedAudio.music,
+      sfxConfig: sharedAudio.sfx,
+      captionStyle: sharedAudio.captionStyle,
+    };
+  } else if (decision.path === "remotion-only") {
+    pathType = "path-b";
+    pathConfig = {
+      path: "remotion-only",
+      type: "text-video",
+      aspectRatio: decision.aspectRatio,
+      text: decision.prompt,
+      sharedAudio,
+    };
+  } else {
+    // ai-video (Path A) — default
+    pathType = "path-a";
+    pathConfig = {
+      path: "ai-video",
+      model: decision.model,
+      aspectRatio: decision.aspectRatio,
+      prompt: decision.prompt,
+      style: decision.style,
+      durationSeconds: decision.duration,
+      audioStrategy: decision.narration.needed || decision.music.needed ? "custom" : "native",
+      sharedAudio,
+    };
+  }
+
+  const preJobPayload: PreJobPayload = {
+    prompt: decision.prompt,
+    pathType,
+    pathConfig,
+  };
+
+  const jobId = createJob(decision.prompt, "720p", 1, {
+    pathType,
+    pathConfig,
+  });
+
+  setState(chatId, { step: "processing", jobId });
+  pollAndDeliver(chatId, jobId, preJobPayload).catch((err) =>
+    console.error("pollAndDeliver failed:", err),
+  );
+}
+
+// ─── Text Message Handler ──────────────────────────────────────────────────
+
+async function handleTextMessage(chatId: number, text: string): Promise<void> {
+  const state = getState(chatId);
+
+  // ── Post-delivery follow-up: refine previous auto-mode decision ──
+  if (state.step === "post_delivery" && state.lastDecision && state.lastExtractedContent) {
+    // Check if this is new content (URL or long text) rather than a follow-up
+    const isNewInput = /^https?:\/\//.test(text.trim()) || text.trim().length > 200;
+
+    if (isNewInput) {
+      // Treat as brand new auto-mode input
+      resetState(chatId);
+      return handleTextMessage(chatId, text);
+    }
+
+    await sendMessage(chatId, "\u{1F504} Adjusting your video...");
+    await sendChatAction(chatId, "typing");
+
+    const refined = await refineAutoDecision(
+      state.lastDecision,
+      text,
+      state.lastExtractedContent,
+    );
+
+    pendingAutoReasoning.set(chatId, refined.reasoning);
+    pendingAutoDecision.set(chatId, { decision: refined, content: state.lastExtractedContent });
+
+    await sendMessage(
+      chatId,
+      `\u{1F3AC} Creating a ${refined.style} video with narration ${refined.narration.needed ? "on" : "off"} and ${refined.music.needed ? refined.music.genre + " music" : "no music"}...`,
+    );
+
+    await dispatchAutoDecision(chatId, refined, state.lastExtractedContent);
+    return;
+  }
+
+  // ── Auto Mode: user sends text/URL input ──
+  if (state.step === "auto_awaiting_input") {
+    try {
+      await sendChatAction(chatId, "typing");
+      const inputType = detectInputType(text);
+      const extractedContent = await extractContent(text, inputType);
+      await sendMessage(chatId, getAnalyzingMessage(extractedContent));
+
+      setState(chatId, { step: "auto_processing", extractedContent });
+
+      await sendChatAction(chatId, "typing");
+      const decision = await makeAutoDecisions(extractedContent);
+
+      pendingAutoReasoning.set(chatId, decision.reasoning);
+      pendingAutoDecision.set(chatId, { decision, content: extractedContent });
+      const pathType = decision.path === "upload-edit" ? "path-c" : decision.path === "remotion-only" ? "path-b" : "path-a";
+      await sendChatAction(chatId, "upload_video");
+      await sendMessage(
+        chatId,
+        `${getGeneratingMessage(extractedContent, decision)}\n${getEstimatedTime(pathType)}`,
+      );
+
+      await dispatchAutoDecision(chatId, decision, extractedContent);
+    } catch (err) {
+      console.error("Auto mode failed:", err);
+      await sendMessage(
+        chatId,
+        "Something went wrong analyzing your input. Please try again or use /start for manual mode.",
+      );
+      resetState(chatId);
+    }
     return;
   }
 
@@ -2010,24 +2261,57 @@ async function handleTextMessage(chatId: number, text: string): Promise<void> {
     return;
   }
 
-  // ── /start or /create — always reset ──
-  if (text === "/start" || text === "/create" || state.step === "idle") {
+  // ── /start or /create — show manual mode menu ──
+  if (text === "/start" || text === "/create") {
     setState(chatId, { step: "path_selection" });
     await sendMessage(
       chatId,
-      "Welcome to <b>FlowMotion</b>! I can help you create videos in three ways.",
+      "Welcome to <b>FlowMotion</b>! Just send me anything and I'll create a video automatically. Or choose manual mode below.",
     );
     await sendPathKeyboard(chatId);
+    return;
+  }
+
+  // ── Default: auto mode for idle/path_selection (zero-tap autonomy) ──
+  if (state.step === "idle" || state.step === "path_selection") {
+    try {
+      await sendChatAction(chatId, "typing");
+      const inputType = detectInputType(text);
+      const extractedContent = await extractContent(text, inputType);
+      await sendMessage(chatId, getAnalyzingMessage(extractedContent));
+
+      setState(chatId, { step: "auto_processing", extractedContent });
+
+      await sendChatAction(chatId, "typing");
+      const decision = await makeAutoDecisions(extractedContent);
+
+      pendingAutoReasoning.set(chatId, decision.reasoning);
+      pendingAutoDecision.set(chatId, { decision, content: extractedContent });
+      const pathType = decision.path === "upload-edit" ? "path-c" : decision.path === "remotion-only" ? "path-b" : "path-a";
+      await sendChatAction(chatId, "upload_video");
+      await sendMessage(
+        chatId,
+        `${getGeneratingMessage(extractedContent, decision)}\n${getEstimatedTime(pathType)}`,
+      );
+
+      await dispatchAutoDecision(chatId, decision, extractedContent);
+    } catch (err) {
+      console.error("Auto mode (default) failed:", err);
+      await sendMessage(
+        chatId,
+        "Something went wrong. Please try again or use /start for manual mode.",
+      );
+      resetState(chatId);
+    }
     return;
   }
 
   // ── Catch-all: unexpected text in a non-text step ──
   await sendMessage(
     chatId,
-    "I didn't expect text right now. Let's start fresh.",
+    "I didn't expect text right now. Send /start for manual mode, or just describe what you want.",
   );
-  setState(chatId, { step: "path_selection" });
-  await sendPathKeyboard(chatId);
+  resetState(chatId);
 }
 
 // ─── Photo Message Handler ─────────────────────────────────────────────────
@@ -2038,6 +2322,76 @@ async function handlePhotoMessage(
 ): Promise<void> {
   const state = getState(chatId);
   const highRes = photo[photo.length - 1];
+
+  // Auto Mode: User sends a photo — use as first frame for Path A
+  if (state.step === "auto_awaiting_input") {
+    try {
+    const fileUrl = await getTelegramFileUrl(highRes.file_id);
+    if (!fileUrl) {
+      await sendMessage(chatId, "Failed to process image. Please try again.");
+      return;
+    }
+
+    await sendMessage(chatId, "\u{1F50D} Analyzing your image...");
+
+    const extractedContent: ExtractedContent = {
+      inputType: "text",
+      title: "Image Upload",
+      description: "User-uploaded image — use as visual reference for video generation",
+      rawContent: "Generate a cinematic video inspired by this image.",
+    };
+
+    setState(chatId, { step: "auto_processing", extractedContent });
+    await sendMessage(chatId, "\u{1F9E0} Making creative decisions...");
+    const decision = await makeAutoDecisions(extractedContent);
+
+    // Override to use the uploaded image as first frame
+    const sharedAudio = buildSharedAudioFromDecision(decision);
+
+    const pathConfig: PathAConfig = {
+      path: "ai-video",
+      model: decision.model,
+      aspectRatio: decision.aspectRatio,
+      prompt: decision.prompt,
+      style: decision.style,
+      durationSeconds: decision.duration,
+      firstFrameImageUrl: fileUrl,
+      audioStrategy: decision.narration.needed || decision.music.needed ? "custom" : "native",
+      sharedAudio,
+    };
+
+    pendingAutoReasoning.set(chatId, decision.reasoning);
+    pendingAutoDecision.set(chatId, { decision, content: extractedContent });
+    await sendMessage(
+      chatId,
+      `\u{1F3AC} Generating video from your image...\n${getEstimatedTime("path-a")}`,
+    );
+
+    const preJobPayload: PreJobPayload = {
+      prompt: decision.prompt,
+      pathType: "path-a",
+      pathConfig,
+    };
+
+    const jobId = createJob(decision.prompt, "720p", 1, {
+      pathType: "path-a",
+      pathConfig,
+    });
+
+    setState(chatId, { step: "processing", jobId });
+    pollAndDeliver(chatId, jobId, preJobPayload).catch((err) =>
+      console.error("pollAndDeliver failed:", err),
+    );
+    } catch (err) {
+      console.error("Auto mode photo failed:", err);
+      await sendMessage(
+        chatId,
+        "Something went wrong processing your image. Please try again or use /start for manual mode.",
+      );
+      resetState(chatId);
+    }
+    return;
+  }
 
   // Path A: First frame image upload
   if (state.step === "a_first_frame_upload") {
@@ -2116,6 +2470,76 @@ async function handlePhotoMessage(
     return;
   }
 
+  // ── Default: auto mode for idle/path_selection (zero-tap photo → video) ──
+  if (state.step === "idle" || state.step === "path_selection") {
+    try {
+      await sendChatAction(chatId, "typing");
+      const fileUrl = await getTelegramFileUrl(highRes.file_id);
+      if (!fileUrl) {
+        await sendMessage(chatId, "Failed to process image. Please try again.");
+        return;
+      }
+
+      await sendMessage(chatId, "\u{2728} Bringing your image to life...");
+
+      const extractedContent: ExtractedContent = {
+        inputType: "text",
+        title: "Image Upload",
+        description: "User-uploaded image — use as visual reference for video generation",
+        rawContent: "Generate a cinematic video inspired by this image.",
+      };
+
+      setState(chatId, { step: "auto_processing", extractedContent });
+      await sendMessage(chatId, "\u{1F9E0} Making creative decisions...");
+      const decision = await makeAutoDecisions(extractedContent);
+
+      const sharedAudio = buildSharedAudioFromDecision(decision);
+
+      const pathConfig: PathAConfig = {
+        path: "ai-video",
+        model: decision.model,
+        aspectRatio: decision.aspectRatio,
+        prompt: decision.prompt,
+        style: decision.style,
+        durationSeconds: decision.duration,
+        firstFrameImageUrl: fileUrl,
+        audioStrategy: decision.narration.needed || decision.music.needed ? "custom" : "native",
+        sharedAudio,
+      };
+
+      pendingAutoReasoning.set(chatId, decision.reasoning);
+      pendingAutoDecision.set(chatId, { decision, content: extractedContent });
+      await sendMessage(
+        chatId,
+        `\u{1F3AC} Generating video from your image...\n${getEstimatedTime("path-a")}`,
+      );
+
+      const preJobPayload: PreJobPayload = {
+        prompt: decision.prompt,
+        pathType: "path-a",
+        pathConfig,
+      };
+
+      const jobId = createJob(decision.prompt, "720p", 1, {
+        pathType: "path-a",
+        pathConfig,
+      });
+
+      setState(chatId, { step: "processing", jobId });
+      pollAndDeliver(chatId, jobId, preJobPayload).catch((err) =>
+        console.error("pollAndDeliver failed:", err),
+      );
+    } catch (err) {
+      console.error("Auto mode zero-tap photo failed:", err);
+      await sendMessage(
+        chatId,
+        "Something went wrong processing your image. Please try again or use /start for manual mode.",
+      );
+      resetState(chatId);
+    }
+    return;
+  }
+
   // Not in image collection mode
   await sendMessage(
     chatId,
@@ -2130,6 +2554,79 @@ async function handleVideoMessage(
   video: { file_id: string },
 ): Promise<void> {
   const state = getState(chatId);
+
+  // Auto Mode: User uploads video
+  if (state.step === "auto_awaiting_input") {
+    await sendChatAction(chatId, "typing");
+    await sendMessage(chatId, "\u{1F39E}\uFE0F Processing your video...");
+
+    const fileRes = await fetch(`${API_BASE}/getFile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: video.file_id }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const fileData = (await fileRes.json()) as {
+      result?: { file_path?: string; file_size?: number };
+    };
+    const filePath = fileData.result?.file_path;
+
+    if (!filePath) {
+      await sendMessage(chatId, "Failed to download video. Please try again.");
+      return;
+    }
+
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+    const localPath = `/tmp/uploads/${Date.now()}-${filePath.split("/").pop()}`;
+    const { mkdir, writeFile } = await import("fs/promises");
+    await mkdir("/tmp/uploads", { recursive: true });
+
+    try {
+      const videoResponse = await fetch(fileUrl, {
+        signal: AbortSignal.timeout(120_000),
+      });
+      const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+      await writeFile(localPath, videoBuffer);
+    } catch (err) {
+      console.error("Auto mode: Failed to download video:", err);
+      await sendMessage(chatId, "Failed to download the video. Please try again.");
+      return;
+    }
+
+    const extractedContent: ExtractedContent = {
+      inputType: "video",
+      title: "Uploaded Video",
+      description: "User-uploaded video file for auto editing",
+      rawContent: "",
+      videoLocalPath: localPath,
+      videoUrl: fileUrl,
+    };
+
+    setState(chatId, { step: "auto_processing", extractedContent });
+
+    try {
+      await sendChatAction(chatId, "typing");
+      const decision = await makeAutoDecisions(extractedContent);
+
+      pendingAutoReasoning.set(chatId, decision.reasoning);
+      pendingAutoDecision.set(chatId, { decision, content: extractedContent });
+      await sendChatAction(chatId, "upload_video");
+      await sendMessage(
+        chatId,
+        `\u{1F3AC} Editing your video...\n${getEstimatedTime("path-c")}`,
+      );
+
+      await dispatchAutoDecision(chatId, decision, extractedContent);
+    } catch (err) {
+      console.error("Auto mode video decision failed:", err);
+      await sendMessage(
+        chatId,
+        "Something went wrong analyzing your video. Please try again or use /start for manual mode.",
+      );
+      resetState(chatId);
+    }
+    return;
+  }
 
   // Path C: User uploads video for editing
   if (state.step === "c_awaiting_video") {
@@ -2179,6 +2676,79 @@ async function handleVideoMessage(
 
     await sendMessage(chatId, "Video received! What would you like to do?");
     await sendEditActionKeyboard(chatId, []);
+    return;
+  }
+
+  // ── Default: auto mode for idle/path_selection (zero-tap video → auto edit) ──
+  if (state.step === "idle" || state.step === "path_selection") {
+    await sendChatAction(chatId, "typing");
+    await sendMessage(chatId, "\u{1F39E}\uFE0F Processing your video...");
+
+    const fileRes = await fetch(`${API_BASE}/getFile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: video.file_id }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const fileData = (await fileRes.json()) as {
+      result?: { file_path?: string; file_size?: number };
+    };
+    const filePath = fileData.result?.file_path;
+
+    if (!filePath) {
+      await sendMessage(chatId, "Failed to download video. Please try again.");
+      return;
+    }
+
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+    const localPath = `/tmp/uploads/${Date.now()}-${filePath.split("/").pop()}`;
+    const { mkdir, writeFile } = await import("fs/promises");
+    await mkdir("/tmp/uploads", { recursive: true });
+
+    try {
+      const videoResponse = await fetch(fileUrl, {
+        signal: AbortSignal.timeout(120_000),
+      });
+      const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+      await writeFile(localPath, videoBuffer);
+    } catch (err) {
+      console.error("Auto mode default: Failed to download video:", err);
+      await sendMessage(chatId, "Failed to download the video. Please try again.");
+      return;
+    }
+
+    const extractedContent: ExtractedContent = {
+      inputType: "video",
+      title: "Uploaded Video",
+      description: "User-uploaded video file for auto editing",
+      rawContent: "",
+      videoLocalPath: localPath,
+      videoUrl: fileUrl,
+    };
+
+    setState(chatId, { step: "auto_processing", extractedContent });
+
+    try {
+      await sendChatAction(chatId, "typing");
+      const decision = await makeAutoDecisions(extractedContent);
+
+      pendingAutoReasoning.set(chatId, decision.reasoning);
+      pendingAutoDecision.set(chatId, { decision, content: extractedContent });
+      await sendChatAction(chatId, "upload_video");
+      await sendMessage(
+        chatId,
+        `\u{1F3AC} Editing your video...\n${getEstimatedTime("path-c")}`,
+      );
+
+      await dispatchAutoDecision(chatId, decision, extractedContent);
+    } catch (err) {
+      console.error("Auto mode default video failed:", err);
+      await sendMessage(
+        chatId,
+        "Something went wrong. Please try again or use /start for manual mode.",
+      );
+      resetState(chatId);
+    }
     return;
   }
 
@@ -2276,7 +2846,7 @@ export async function handleTelegramUpdate(
   if (!message.text) {
     await sendMessage(
       chatId,
-      "Welcome to <b>FlowMotion</b>! Send /start to begin.",
+      "Welcome to <b>FlowMotion</b>! Send me a message, link, video, or photo and I'll create a video automatically. Or send /start for manual mode.",
     );
     return;
   }
@@ -2289,7 +2859,7 @@ export async function handleTelegramUpdate(
     setState(chatId, { step: "path_selection" });
     await sendMessage(
       chatId,
-      "Welcome to <b>FlowMotion</b>! I can help you create videos in three ways.",
+      "Welcome to <b>FlowMotion</b>! Just send me anything \u2014 a GitHub URL, YouTube link, video, or describe what you want. I'll handle the rest automatically.\n\nOr tap below for manual control:",
     );
     await sendPathKeyboard(chatId);
     return;
