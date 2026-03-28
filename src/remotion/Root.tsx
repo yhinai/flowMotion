@@ -15,7 +15,8 @@ import { BrandStorySchema } from "./templates/brand-story/schema";
 import { EditorialVideo } from "./compositions/EditorialVideo";
 import { TextVideo } from "./compositions/TextVideo";
 import { ImageSlideshow } from "./compositions/ImageSlideshow";
-import { TextVideoSchema, ImageSlideshowSchema } from "./compositions/schemas";
+import { TextVideoSchema, ImageSlideshowSchema, CaptionedVideoSchema } from "./compositions/schemas";
+import { CaptionedVideo } from "./compositions/CaptionedVideo";
 
 const sceneSchema = z.object({
   scene_number: z.number(),
@@ -226,6 +227,28 @@ const RemotionRoot: React.FC = () => {
         calculateMetadata={({ props }) => ({
           durationInFrames: Math.max(1, props.images.length) * props.durationPerSlide * FPS,
         })}
+      />
+
+      {/* Captioned Video — overlay captions on user-uploaded video */}
+      <Composition
+        id="CaptionedVideo"
+        component={CaptionedVideo}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        schema={CaptionedVideoSchema}
+        defaultProps={{
+          videoSrc: "",
+          captions: [],
+        }}
+        calculateMetadata={({ props }) => {
+          // Duration based on last caption end time, or default 30s
+          const lastCaption = props.captions[props.captions.length - 1];
+          const durationMs = lastCaption ? lastCaption.endMs + 1000 : 30000;
+          return {
+            durationInFrames: Math.round((durationMs / 1000) * FPS),
+          };
+        }}
       />
 
       {/* Editorial Video — polished beat-driven motion graphics */}

@@ -277,6 +277,7 @@ export async function renderImageSlideshow(
 
 /**
  * Path C: Render a captioned video using the CaptionedVideo Remotion composition.
+ * Uses the video's actual duration (from the last caption timestamp or video probe).
  */
 export async function renderCaptionedVideo(
   videoPath: string,
@@ -286,14 +287,23 @@ export async function renderCaptionedVideo(
   const bundled = await getBundle();
   const FPS = 30;
 
-  // Get video metadata to determine duration and dimensions
-  // For now, assume 30 seconds at 1080p — will be refined in Phase 3
-  const durationInFrames = 30 * FPS;
+  // Determine duration from captions or fall back to video probe
+  let durationMs: number;
+  const lastCaption = captions[captions.length - 1];
+  if (lastCaption) {
+    durationMs = lastCaption.endMs + 1000; // 1s buffer after last caption
+  } else {
+    durationMs = 30000; // fallback 30s
+  }
+
+  const durationInFrames = Math.round((durationMs / 1000) * FPS);
+
+  const inputProps = { videoSrc: videoPath, captions };
 
   const composition = await selectComposition({
     serveUrl: bundled,
     id: "CaptionedVideo",
-    inputProps: { videoSrc: videoPath, captions },
+    inputProps,
   });
 
   const finalComposition = {
@@ -305,7 +315,7 @@ export async function renderCaptionedVideo(
     composition: finalComposition,
     serveUrl: bundled,
     outputLocation: outputPath,
-    inputProps: { videoSrc: videoPath, captions },
+    inputProps,
     ...getSharedRenderOptions(),
   });
 
