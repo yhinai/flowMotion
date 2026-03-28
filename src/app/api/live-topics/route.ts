@@ -5,7 +5,32 @@
  * When Nexla Nexset IDs are configured, data is pulled from managed
  * Nexla data pipelines. Falls back to direct public API calls so the
  * feature works even without a configured Nexla flow.
+ *
+ * POST /api/live-topics
+ *
+ * Autonomous trigger: fetches the top trending topic and kicks off
+ * video generation automatically via POST /api/generate.
+ *
+ * ─── Nexla Setup Instructions ───────────────────────────────────────
+ * 1. Go to https://express.dev and sign in / create an account
+ * 2. Create a new flow for each data source:
+ *    - Crypto: paste CoinGecko URL as source
+ *      (https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=percent_change_24h&per_page=3&page=1)
+ *    - Weather: paste Open-Meteo URL as source
+ *      (https://api.open-meteo.com/v1/forecast?latitude=40.71&longitude=-74.01&daily=temperature_2m_max,weathercode&forecast_days=1&timezone=America%2FNew_York)
+ *    - News: paste any news API URL as source
+ * 3. For each flow, get the Nexset ID from the flow details page
+ * 4. Set the following env vars in .env:
+ *    - NEXLA_API_KEY=<your Nexla API key from account settings>
+ *    - NEXLA_CRYPTO_NEXSET_ID=<Nexset ID from crypto flow>
+ *    - NEXLA_WEATHER_NEXSET_ID=<Nexset ID from weather flow>
+ *    - NEXLA_NEWS_NEXSET_ID=<Nexset ID from news flow>
+ * 5. Without these vars, the endpoint falls back to direct public APIs
+ *    (CoinGecko + Open-Meteo — both free, no auth required)
+ * ─────────────────────────────────────────────────────────────────────
  */
+
+import { NextResponse } from "next/server";
 
 export interface LiveTopic {
   id: string;
@@ -224,9 +249,9 @@ async function getWeatherTopics(): Promise<LiveTopic[]> {
   return [];
 }
 
-// ─── Route handler ────────────────────────────────────────────────────────────
+// ─── Shared topic fetcher ────────────────────────────────────────────────────
 
-export async function GET() {
+async function getAllTopics(): Promise<{ topics: LiveTopic[]; nexlaConnected: boolean }> {
   const [news, crypto, weather] = await Promise.all([
     getNewsTopics(),
     getCryptoTopics(),
@@ -234,13 +259,65 @@ export async function GET() {
   ]);
 
   const topics: LiveTopic[] = [...news, ...crypto, ...weather];
-
   const nexlaConnected =
     !!(process.env.NEXLA_API_KEY && process.env.NEXLA_NEWS_NEXSET_ID);
+
+  return { topics, nexlaConnected };
+}
+
+// ─── GET handler ─────────────────────────────────────────────────────────────
+
+export async function GET() {
+  const { topics, nexlaConnected } = await getAllTopics();
 
   return Response.json({
     topics,
     nexlaConnected,
     fetchedAt: new Date().toISOString(),
+  });
+}
+
+// ─── POST handler — autonomous trigger ───────────────────────────────────────
+
+export async function POST(request: Request) {
+  const { topics } = await getAllTopics();
+
+  if (topics.length === 0) {
+    return NextResponse.json(
+      { error: "No trending topics available" },
+      { status: 404 }
+    );
+  }
+
+  const topic = topics[0];
+
+  // Build absolute URL for internal API call
+  const url = new URL("/api/generate", request.url);
+
+  const generateRes = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: topic.suggestedPrompt,
+      sceneCount: 3,
+      resolution: "1080p",
+      engine: "auto",
+    }),
+  });
+
+  if (!generateRes.ok) {
+    const err = await generateRes.json().catch(() => ({}));
+    return NextResponse.json(
+      { error: "Failed to start generation", details: err },
+      { status: 502 }
+    );
+  }
+
+  const { jobId } = (await generateRes.json()) as { jobId: string };
+
+  return NextResponse.json({
+    jobId,
+    topic,
+    redirectUrl: `/generate?jobId=${jobId}`,
   });
 }
