@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Sequence,
   useCurrentFrame,
   useVideoConfig,
@@ -122,12 +123,14 @@ const TextSlide: React.FC<{
 export const TextVideo: React.FC<TextVideoProps> = ({
   lines,
   durationPerSlide,
+  musicUrl,
 }) => {
   const { fps } = useVideoConfig();
   const slideDurationFrames = Math.round(durationPerSlide * fps);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0f0c29" }}>
+      {musicUrl && <Audio src={musicUrl} volume={0.3} />}
       {lines.map((line, i) => (
         <Sequence
           key={i}

@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Sequence,
   Img,
   useCurrentFrame,
@@ -92,12 +93,14 @@ const Slide: React.FC<{
 export const ImageSlideshow: React.FC<ImageSlideshowProps> = ({
   images,
   durationPerSlide,
+  musicUrl,
 }) => {
   const { fps } = useVideoConfig();
   const slideDurationFrames = Math.round(durationPerSlide * fps);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
+      {musicUrl && <Audio src={musicUrl} volume={0.3} />}
       {images.map((src, i) => (
         <Sequence
           key={i}

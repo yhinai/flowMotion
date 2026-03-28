@@ -3,11 +3,13 @@ import { z } from "zod";
 export const TextVideoSchema = z.object({
   lines: z.array(z.string()).min(1).describe("Text lines, each becomes a slide"),
   durationPerSlide: z.number().min(1).max(30).describe("Duration per slide in seconds"),
+  musicUrl: z.string().optional().describe("Optional background music URL"),
 });
 
 export const ImageSlideshowSchema = z.object({
   images: z.array(z.string()).describe("Image URLs for the slideshow"),
   durationPerSlide: z.number().min(1).max(30).describe("Duration per slide in seconds"),
+  musicUrl: z.string().optional().describe("Optional background music URL"),
 });
 
 export const CaptionedVideoSchema = z.object({

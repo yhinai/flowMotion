@@ -181,11 +181,13 @@ export async function renderEditorialVideo(
 export interface TextVideoConfig {
   aspectRatio: AspectRatio;
   duration?: number;
+  musicUrl?: string;
 }
 
 export interface SlideshowConfig {
   aspectRatio: AspectRatio;
   duration?: number; // seconds per slide
+  musicUrl?: string;
 }
 
 /**
@@ -210,10 +212,16 @@ export async function renderTextVideo(
   const bundled = await getBundle();
   const FPS = 30;
 
+  const inputProps = {
+    lines,
+    durationPerSlide,
+    ...(config.musicUrl ? { musicUrl: config.musicUrl } : {}),
+  };
+
   const composition = await selectComposition({
     serveUrl: bundled,
     id: "TextVideo",
-    inputProps: { lines, durationPerSlide },
+    inputProps,
   });
 
   const finalComposition = {
@@ -227,7 +235,7 @@ export async function renderTextVideo(
     composition: finalComposition,
     serveUrl: bundled,
     outputLocation: outputPath,
-    inputProps: { lines, durationPerSlide },
+    inputProps,
     ...getSharedRenderOptions(),
   });
 
@@ -251,10 +259,16 @@ export async function renderImageSlideshow(
   const bundled = await getBundle();
   const FPS = 30;
 
+  const inputProps = {
+    images,
+    durationPerSlide,
+    ...(config.musicUrl ? { musicUrl: config.musicUrl } : {}),
+  };
+
   const composition = await selectComposition({
     serveUrl: bundled,
     id: "ImageSlideshow",
-    inputProps: { images, durationPerSlide },
+    inputProps,
   });
 
   const finalComposition = {
@@ -268,7 +282,7 @@ export async function renderImageSlideshow(
     composition: finalComposition,
     serveUrl: bundled,
     outputLocation: outputPath,
-    inputProps: { images, durationPerSlide },
+    inputProps,
     ...getSharedRenderOptions(),
   });
 

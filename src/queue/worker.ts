@@ -4,6 +4,7 @@ import { generateAllAssets } from "@/lib/nano-banan";
 import { generateAllNarrations, generateAllSFX } from "@/lib/elevenlabs";
 import { renderVideo, renderTemplateVideo, renderEditorialVideo } from "@/lib/render";
 import { uploadFile, generateKey } from "@/lib/storage";
+import { generateMusic } from "@/lib/lyria";
 import { extractGitHubContent } from "@/lib/github";
 import { getTemplate } from "@/lib/templates";
 import { mkdir } from "fs/promises";
@@ -1235,11 +1236,21 @@ async function processPathAJob(
       transition: "cut",
     };
 
-    const clipPath = await generateVideoClip(scene, {
-      model: modelId,
-      aspectRatio: config.aspectRatio,
-      resolution: "720p",
-    });
+    // Generate video clip and background music in parallel
+    const [clipPath, musicResult] = await Promise.all([
+      generateVideoClip(scene, {
+        model: modelId,
+        aspectRatio: config.aspectRatio,
+        resolution: "720p",
+      }),
+      generateMusic(
+        `Background music for: ${config.prompt.slice(0, 100)}`,
+        { durationSeconds: 8, mood: "cinematic", tempo: "medium" }
+      ).catch((err) => {
+        console.warn(`Music generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+        return null;
+      }),
+    ]);
 
     checkCancelled(jobId);
     await updateJobPersistent(jobId, {
@@ -1247,6 +1258,17 @@ async function processPathAJob(
       progress: 70,
       message: "Uploading video...",
     });
+
+    // Upload music if generated
+    let musicUrl: string | undefined;
+    if (musicResult) {
+      try {
+        const musicKey = generateKey(jobId, "music.wav");
+        musicUrl = await uploadFile(musicResult, musicKey);
+      } catch {
+        // Music upload failed — deliver video without music
+      }
+    }
 
     const downloadKey = generateKey(jobId, "final.mp4");
     const downloadUrl = await uploadFile(clipPath, downloadKey);
@@ -1275,9 +1297,38 @@ async function processPathBJob(
   config: PathBConfig
 ): Promise<void> {
   try {
+    // Generate background music while we prepare the render
     await updateJobPersistent(jobId, {
       stage: "composing_video",
-      progress: 10,
+      progress: 5,
+      message: "Generating background music...",
+    });
+
+    const contentHint = config.type === "text-video"
+      ? (config.text ?? "").slice(0, 100)
+      : "image slideshow background";
+
+    const totalSlides = config.type === "text-video"
+      ? (config.text ?? "").split("\n").filter(Boolean).length
+      : (config.images ?? []).length;
+    const durationPerSlide = config.duration ?? (config.type === "text-video" ? 3 : 4);
+    const totalDuration = totalSlides * durationPerSlide;
+
+    // Generate music (non-blocking — failure is acceptable)
+    let musicUrl: string | undefined;
+    try {
+      const musicPath = await generateMusic(
+        `Background music for: ${contentHint}`,
+        { durationSeconds: totalDuration, mood: "upbeat", tempo: "medium" }
+      );
+      const musicKey = generateKey(jobId, "music.wav");
+      musicUrl = await uploadFile(musicPath, musicKey);
+    } catch (err) {
+      console.warn(`Path B music generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+    }
+
+    await updateJobPersistent(jobId, {
+      progress: 20,
       message: `Creating ${config.type === "text-video" ? "text video" : "image slideshow"}...`,
     });
 
@@ -1292,6 +1343,7 @@ async function processPathBJob(
         {
           aspectRatio: config.aspectRatio,
           duration: config.duration,
+          musicUrl,
         },
         outputPath
       );
@@ -1302,6 +1354,7 @@ async function processPathBJob(
         {
           aspectRatio: config.aspectRatio,
           duration: config.duration,
+          musicUrl,
         },
         outputPath
       );
