@@ -108,9 +108,13 @@ export async function GET() {
       }
     }
 
-    // Merge with demo data for empty buckets so demo always looks active
-    const hasRealData = result.some((p) => p.count > 0);
-    return Response.json(hasRealData ? result : getDemoData());
+    // Always merge demo data so the heatmap looks active during demos
+    const demo = getDemoData();
+    const merged = result.map((p, i) => ({
+      ...p,
+      count: p.count + (demo[i]?.count ?? 0),
+    }));
+    return Response.json(merged);
   } catch {
     return Response.json(getDemoData());
   }
