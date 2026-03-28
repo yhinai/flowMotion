@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
-import { Noto_Serif, Manrope } from "next/font/google";
+import { Noto_Serif, Manrope, Geist } from "next/font/google";
 import "./globals.css";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const notoSerif = Noto_Serif({
   variable: "--font-display",
@@ -30,7 +33,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${notoSerif.variable} ${manrope.variable} h-full`}
+      className={cn("h-full", notoSerif.variable, manrope.variable, "font-sans", geist.variable)}
     >
       <body className="min-h-full flex flex-col">
         {children}
