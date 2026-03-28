@@ -50,7 +50,7 @@ export default function GenerationProgress({ status }: GenerationProgressProps) 
   const isFailed = status.stage === "failed";
 
   return (
-    <div className="w-full max-w-2xl space-y-8 animate-fade-in-up">
+    <div className="w-full max-w-3xl space-y-8 animate-fade-in-up">
       {/* Stepper */}
       <div className="flex items-start justify-between">
         {PIPELINE_STEPS.map((step, i) => {
