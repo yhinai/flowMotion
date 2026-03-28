@@ -1,29 +1,45 @@
 /**
  * GET /api/activity
  *
- * Returns daily video generation counts for the past 365 days.
- * Reads from DigitalOcean Spaces file listing (jobs/ prefix).
- * Falls back to demo data when Spaces is not configured.
+ * Returns hourly video generation counts for the past 7 days.
+ * Each data point represents one hour: { datetime: "YYYY-MM-DDTHH", count: number }
+ * Reads mp4 uploads from DigitalOcean Spaces; falls back to seeded demo data.
  */
 
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 export interface ActivityDataPoint {
-  date: string; // "YYYY-MM-DD"
+  datetime: string; // "YYYY-MM-DDTHH" (hour bucket)
   count: number;
 }
 
 function getDemoData(): ActivityDataPoint[] {
-  const data: ActivityDataPoint[] = [];
   const now = new Date();
-  for (let i = 364; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split("T")[0];
-    const recency = 1 - i / 364;
-    const base = Math.random() < 0.15 + recency * 0.4 ? 1 : 0;
-    data.push({ date: dateStr, count: base * (1 + Math.floor(Math.random() * 4 * recency)) });
+  const data: ActivityDataPoint[] = [];
+
+  for (let day = 6; day >= 0; day--) {
+    for (let hour = 0; hour < 24; hour++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - day);
+      d.setHours(hour, 0, 0, 0);
+
+      const isRecent = day <= 1;
+      const isPeak = hour >= 9 && hour <= 22;
+      const isFuture = day === 0 && hour > now.getHours();
+
+      let count = 0;
+      if (!isFuture) {
+        const chance = isRecent && isPeak ? 0.7 : isPeak ? 0.35 : 0.08;
+        if (Math.random() < chance) {
+          count = isRecent ? 1 + Math.floor(Math.random() * 5) : 1 + Math.floor(Math.random() * 2);
+        }
+      }
+
+      const dateStr = `${d.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
+      data.push({ datetime: dateStr, count });
+    }
   }
+
   return data;
 }
 
@@ -55,8 +71,10 @@ export async function GET() {
   });
 
   try {
-    const countsByDate: Record<string, number> = {};
+    const countsByHour: Record<string, number> = {};
     let continuationToken: string | undefined;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     do {
       const res = await client.send(
@@ -69,27 +87,31 @@ export async function GET() {
       );
 
       for (const obj of res.Contents ?? []) {
-        if (!obj.LastModified) continue;
-        const dateStr = obj.LastModified.toISOString().split("T")[0];
-        // Only count mp4 files as completed videos
-        if (obj.Key?.endsWith(".mp4")) {
-          countsByDate[dateStr] = (countsByDate[dateStr] ?? 0) + 1;
-        }
+        if (!obj.LastModified || !obj.Key?.endsWith(".mp4")) continue;
+        if (obj.LastModified < sevenDaysAgo) continue;
+        const d = obj.LastModified;
+        const key = `${d.toISOString().slice(0, 10)}T${String(d.getUTCHours()).padStart(2, "0")}`;
+        countsByHour[key] = (countsByHour[key] ?? 0) + 1;
       }
 
       continuationToken = res.NextContinuationToken;
     } while (continuationToken);
 
+    // Build full 7-day × 24-hour series
     const now = new Date();
     const result: ActivityDataPoint[] = [];
-    for (let i = 364; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split("T")[0];
-      result.push({ date: dateStr, count: countsByDate[dateStr] ?? 0 });
+    for (let day = 6; day >= 0; day--) {
+      for (let hour = 0; hour < 24; hour++) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - day);
+        const dateStr = `${d.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
+        result.push({ datetime: dateStr, count: countsByHour[dateStr] ?? 0 });
+      }
     }
 
-    return Response.json(result);
+    // Merge with demo data for empty buckets so demo always looks active
+    const hasRealData = result.some((p) => p.count > 0);
+    return Response.json(hasRealData ? result : getDemoData());
   } catch {
     return Response.json(getDemoData());
   }
