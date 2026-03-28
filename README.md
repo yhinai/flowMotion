@@ -177,8 +177,8 @@ sequenceDiagram
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/nihalnihalani/Gemini0321.git
-cd Gemini0321
+git clone https://github.com/yhinai/flowMotion.git
+cd flowMotion
 ```
 
 ### 2. Set Up Environment Variables

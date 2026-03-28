@@ -156,13 +156,9 @@ function GenerateContent() {
                 />
               </div>
               <div className="h-[300px] lg:h-[350px]">
-                <LiveChat />
+                <AiAssistant />
               </div>
             </div>
-            <div className="h-[300px] lg:h-[350px]">
-              <AiAssistant />
-            </div>
-          </div>
           </div>
         </div>
       </div>
