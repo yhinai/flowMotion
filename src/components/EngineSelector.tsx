@@ -30,15 +30,11 @@ const ENGINE_ICONS: Record<GenerationEngine, ReactNode> = {
 
 const ENGINES: GenerationEngine[] = ["veo3", "nano-banan", "auto"];
 
-export default function EngineSelector({
-  selected,
-  onChange,
-  disabled,
-}: EngineSelectorProps) {
+export default function EngineSelector({ selected, onChange, disabled }: EngineSelectorProps) {
   return (
     <div className="space-y-3">
       <label className="text-label-md">Engine</label>
-      <div className="flex gap-2.5">
+      <div className="flex gap-3">
         {ENGINES.map((engineId) => {
           const info = ENGINE_INFO[engineId];
           const isSelected = selected === engineId;
@@ -49,40 +45,18 @@ export default function EngineSelector({
               type="button"
               onClick={() => onChange(engineId)}
               disabled={disabled}
-              className="group relative flex flex-1 items-center gap-3 rounded-xl p-3.5 transition-all duration-250 border disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                background: isSelected
-                  ? "rgba(92, 31, 222, 0.12)"
-                  : "var(--surface-container-low)",
-                borderColor: isSelected
-                  ? "rgba(205, 189, 255, 0.35)"
-                  : "rgba(73, 68, 86, 0.1)",
-                boxShadow: isSelected
-                  ? "0 0 24px rgba(92, 31, 222, 0.15), inset 0 1px 0 rgba(205, 189, 255, 0.1)"
-                  : "none",
-              }}
-              onMouseEnter={(e) => {
-                if (!isSelected && !disabled) {
-                  e.currentTarget.style.background = "var(--surface-container)";
-                  e.currentTarget.style.borderColor = "rgba(73, 68, 86, 0.25)";
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isSelected && !disabled) {
-                  e.currentTarget.style.background = "var(--surface-container-low)";
-                  e.currentTarget.style.borderColor = "rgba(73, 68, 86, 0.1)";
-                  e.currentTarget.style.transform = "translateY(0)";
-                }
-              }}
+              className={`group relative flex flex-1 items-center gap-3 p-3.5 transition-all duration-250 disabled:opacity-35 disabled:cursor-not-allowed ${
+                isSelected ? "neu-pressed" : "neu-raised-sm"
+              }`}
+              style={{ borderRadius: "var(--radius-lg)" }}
             >
               <div
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg"
                 style={{
-                  background: isSelected
-                    ? "rgba(92, 31, 222, 0.15)"
-                    : "rgba(73, 68, 86, 0.1)",
+                  boxShadow: isSelected ? "none" : "var(--neu-inset-sm)",
+                  background: isSelected ? "rgba(92, 31, 222, 0.12)" : "var(--neu-bg)",
                   color: isSelected ? "var(--primary)" : "var(--outline)",
+                  borderRadius: "var(--radius-md)",
                 }}
               >
                 {ENGINE_ICONS[engineId]}
@@ -91,38 +65,27 @@ export default function EngineSelector({
                 <div className="flex items-center gap-2">
                   <span
                     className="text-sm font-medium"
-                    style={{
-                      color: isSelected ? "var(--on-surface)" : "var(--on-surface-variant)",
-                    }}
+                    style={{ color: isSelected ? "var(--on-surface)" : "var(--on-surface-variant)" }}
                   >
                     {info.name}
                   </span>
                   {isRecommended && (
                     <span
                       className="rounded-full px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider"
-                      style={{
-                        background: "rgba(92, 31, 222, 0.15)",
-                        color: "var(--primary)",
-                      }}
+                      style={{ background: "rgba(92, 31, 222, 0.12)", color: "var(--primary)" }}
                     >
                       Auto
                     </span>
                   )}
                 </div>
-                <span
-                  className="text-xs leading-tight line-clamp-1"
-                  style={{ color: "var(--outline)" }}
-                >
+                <span className="text-xs leading-tight line-clamp-1" style={{ color: "var(--outline)" }}>
                   {info.description}
                 </span>
               </div>
               {isSelected && (
                 <div
                   className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full"
-                  style={{
-                    background: "var(--primary)",
-                    boxShadow: "0 0 8px rgba(205, 189, 255, 0.6)",
-                  }}
+                  style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--accent-glow)" }}
                 />
               )}
             </button>

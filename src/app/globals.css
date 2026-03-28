@@ -1,54 +1,57 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
-/* ===== AETHERIS CINEMA DESIGN SYSTEM ===== */
+/* ===== LIGHT NEUMORPHISM DESIGN SYSTEM ===== */
+/* Soft extruded surfaces, consistent top-left light source */
+/* Base: #E4E8F0 — soft blue-gray for optimal shadow visibility */
 
 :root {
-  /* Surface hierarchy (darkest to lightest) */
-  --surface-lowest: #0e0e13;
-  --surface-dim: #131318;
-  --surface: #131318;
-  --surface-container-low: #1b1b20;
-  --surface-container: #1f1f25;
-  --surface-container-high: #2a292f;
-  --surface-container-highest: #35343a;
-  --surface-bright: #39383e;
+  /* ── Neumorphic base palette ── */
+  --neu-bg: #E4E8F0;
+  --neu-bg-alt: #DDE1E9;
+  --neu-shadow-dark: rgba(163, 177, 198, 0.6);
+  --neu-shadow-light: rgba(255, 255, 255, 0.8);
 
-  /* Primary: lavender purple glow */
-  --primary: #cdbdff;
+  /* Shadow presets (top-left light source) */
+  --neu-raised: 8px 8px 16px var(--neu-shadow-dark),
+                -8px -8px 16px var(--neu-shadow-light);
+  --neu-raised-sm: 4px 4px 10px var(--neu-shadow-dark),
+                   -4px -4px 10px var(--neu-shadow-light);
+  --neu-raised-lg: 12px 12px 24px var(--neu-shadow-dark),
+                   -12px -12px 24px var(--neu-shadow-light);
+  --neu-inset: inset 6px 6px 12px var(--neu-shadow-dark),
+               inset -6px -6px 12px var(--neu-shadow-light);
+  --neu-inset-sm: inset 3px 3px 6px var(--neu-shadow-dark),
+                  inset -3px -3px 6px var(--neu-shadow-light);
+
+  /* ── Accent: purple (the only non-monochrome color) ── */
+  --primary: #6833ea;
   --primary-container: #5c1fde;
-  --primary-fixed: #e8deff;
-  --on-primary: #370096;
-  --on-primary-container: #cdbdff;
-  --on-primary-fixed-variant: #4f00d0;
+  --primary-fixed: #7c4dff;
+  --on-primary: white;
+  --on-primary-container: #6833ea;
+  --accent-glow: rgba(92, 31, 222, 0.2);
 
-  /* Secondary: anamorphic blue */
-  --secondary: #9ccaff;
-  --secondary-container: #1596ef;
-  --on-secondary: #003256;
+  /* ── Secondary / Tertiary (subtle, used sparingly) ── */
+  --secondary: #2563eb;
+  --tertiary: #c026d3;
 
-  /* Tertiary: neon pink */
-  --tertiary: #ffabf3;
-  --tertiary-container: #950095;
-  --on-tertiary: #5b005b;
+  /* ── Text ── */
+  --on-surface: #2D3142;
+  --on-surface-variant: #5A5F72;
+  --outline: #8B90A0;
+  --outline-variant: #BFC3CE;
 
-  /* Neutrals */
-  --on-surface: #e4e1e9;
-  --on-surface-variant: #cbc3d9;
-  --outline: #958da2;
-  --outline-variant: #494456;
+  /* ── Semantic ── */
+  --error: #dc2626;
+  --error-container: #fef2f2;
+  --success: #16a34a;
 
-  /* Semantic */
-  --error: #ffb4ab;
-  --error-container: #93000a;
-  --success: #7ddc8e;
-  --inverse-primary: #6833ea;
-
-  /* Fonts */
+  /* ── Fonts ── */
   --font-display: 'Noto Serif', Georgia, serif;
   --font-body: 'Manrope', system-ui, sans-serif;
 
-  /* Spacing scale */
+  /* ── Spacing ── */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -60,25 +63,21 @@
   --space-16: 4rem;
   --space-20: 5rem;
 
-  /* Roundness */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.5rem;
+  /* ── Roundness (generous for neumorphism) ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-pill: 50px;
 
-  /* Shadows — purple-tinted ambient light */
-  --shadow-ambient: 0 4px 40px rgba(79, 0, 208, 0.06);
-  --shadow-glow: 0 0 20px rgba(92, 31, 222, 0.3);
-  --shadow-glow-strong: 0 0 40px rgba(92, 31, 222, 0.5);
-
-  /* Transitions */
+  /* ── Transitions ── */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Override defaults */
-  --background: var(--surface);
+  /* ── Aliases ── */
+  --background: var(--neu-bg);
   --foreground: var(--on-surface);
 }
 
@@ -89,24 +88,24 @@
   --font-serif: var(--font-display);
 }
 
-/* ===== BASE STYLES ===== */
+/* ===== BASE ===== */
 
 body {
-  background: var(--surface-dim);
+  background: var(--neu-bg);
   color: var(--on-surface);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Subtle noise texture — barely visible, adds tactile depth */
+/* Subtle noise texture — nearly invisible, adds tactile depth */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 9999;
   pointer-events: none;
-  opacity: 0.025;
+  opacity: 0.008;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }
 
@@ -158,7 +157,7 @@ body::before {
 .text-body-md {
   font-family: var(--font-body);
   font-size: 0.875rem;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--on-surface-variant);
 }
 
@@ -172,39 +171,80 @@ body::before {
   color: var(--outline);
 }
 
-/* ===== COMPONENT PRIMITIVES ===== */
+/* ===== NEUMORPHIC PRIMITIVES ===== */
 
-/* Glass card */
-.glass-card {
-  background: rgba(27, 27, 32, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(73, 68, 86, 0.15);
+/* Raised card — extruded from surface */
+.neu-raised {
+  background: var(--neu-bg);
   border-radius: var(--radius-xl);
-  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  box-shadow: var(--neu-raised);
+  border: none;
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
 }
-.glass-card:hover {
-  border-color: rgba(73, 68, 86, 0.3);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-}
-
-/* Surface card (solid) */
-.surface-card {
-  background: var(--surface-container-low);
-  border: 1px solid rgba(73, 68, 86, 0.1);
-  border-radius: var(--radius-xl);
-  transition: background var(--transition-base), transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
-}
-.surface-card:hover {
-  background: var(--surface-container);
-  border-color: rgba(73, 68, 86, 0.25);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+.neu-raised:hover {
+  box-shadow: 10px 10px 20px var(--neu-shadow-dark),
+              -10px -10px 20px var(--neu-shadow-light);
 }
 
-/* Primary gradient button */
+/* Small raised element */
+.neu-raised-sm {
+  background: var(--neu-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-raised-sm);
+  border: none;
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+/* Inset / recessed well — for inputs, tracks */
+.neu-inset {
+  background: var(--neu-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-inset);
+  border: none;
+}
+
+/* Small inset */
+.neu-inset-sm {
+  background: var(--neu-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--neu-inset-sm);
+  border: none;
+}
+
+/* Convex button — raised with gradient light/dark */
+.neu-button {
+  background: linear-gradient(145deg, #EDF1F7, #D9DDE5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-raised-sm);
+  border: none;
+  color: var(--on-surface);
+  font-family: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition: box-shadow var(--transition-base), transform var(--transition-base), background var(--transition-base);
+}
+.neu-button:hover {
+  box-shadow: 6px 6px 14px var(--neu-shadow-dark),
+              -6px -6px 14px var(--neu-shadow-light);
+  transform: translateY(-1px);
+}
+.neu-button:active {
+  background: linear-gradient(145deg, #D9DDE5, #EDF1F7);
+  box-shadow: var(--neu-inset-sm);
+  transform: translateY(0);
+}
+
+/* Pressed / active toggle state */
+.neu-pressed {
+  background: var(--neu-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-inset-sm);
+  border: none;
+}
+
+/* ── Primary action button (accent-colored neumorphic) ── */
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary-container), var(--primary));
+  background: linear-gradient(145deg, #7340F0, #5520D0);
   color: white;
   font-family: var(--font-body);
   font-weight: 600;
@@ -213,137 +253,108 @@ body::before {
   border: none;
   cursor: pointer;
   transition: box-shadow var(--transition-base), transform var(--transition-base), filter var(--transition-base);
-  box-shadow: 0 2px 12px rgba(92, 31, 222, 0.2);
-  position: relative;
-  overflow: hidden;
+  box-shadow: 4px 4px 12px rgba(92, 31, 222, 0.25),
+              -2px -2px 8px rgba(255, 255, 255, 0.4);
 }
 .btn-primary:hover {
-  box-shadow: 0 4px 20px rgba(92, 31, 222, 0.35), 0 0 40px rgba(92, 31, 222, 0.15);
+  box-shadow: 6px 6px 16px rgba(92, 31, 222, 0.35),
+              -3px -3px 10px rgba(255, 255, 255, 0.5);
   transform: translateY(-2px);
-  filter: brightness(1.1);
+  filter: brightness(1.06);
 }
 .btn-primary:active {
+  box-shadow: inset 3px 3px 6px rgba(72, 20, 180, 0.4),
+              inset -3px -3px 6px rgba(130, 80, 255, 0.15);
   transform: translateY(0);
-  filter: brightness(0.95);
+  filter: brightness(0.97);
 }
 .btn-primary:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
   filter: none;
 }
 
-/* Ghost button */
+/* ── Ghost button (flat, subtle) ── */
 .btn-ghost {
   background: transparent;
   color: var(--primary);
   font-family: var(--font-body);
   font-weight: 500;
   padding: 0.625rem 1.25rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(73, 68, 86, 0.2);
+  border-radius: var(--radius-md);
+  border: none;
   cursor: pointer;
-  transition: background var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base), color var(--transition-base);
+  transition: background var(--transition-base), box-shadow var(--transition-base), color var(--transition-base);
 }
 .btn-ghost:hover {
-  background: rgba(205, 189, 255, 0.08);
-  border-color: rgba(205, 189, 255, 0.25);
+  background: rgba(205, 189, 255, 0.06);
+  box-shadow: var(--neu-raised-sm);
   color: var(--primary-fixed);
 }
+.btn-ghost:active {
+  box-shadow: var(--neu-inset-sm);
+}
 
-/* Stage input (glowing prompt field) */
-.stage-input {
+/* ===== NEUMORPHIC INPUT ===== */
+
+.neu-input {
   width: 100%;
-  background: var(--surface-container-lowest);
+  background: var(--neu-bg);
   color: var(--on-surface);
   font-family: var(--font-body);
   font-size: 1rem;
   line-height: 1.6;
   padding: 1.25rem 1.5rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(73, 68, 86, 0.15);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--neu-inset);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   outline: none;
   resize: vertical;
-  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  transition: box-shadow var(--transition-base);
 }
-.stage-input::placeholder {
+.neu-input::placeholder {
   color: var(--outline);
 }
-.stage-input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(92, 31, 222, 0.15), var(--shadow-glow);
+.neu-input:focus {
+  box-shadow: var(--neu-inset),
+              0 0 0 3px rgba(92, 31, 222, 0.15);
 }
 
-/* Progress bar */
-.progress-track {
-  background: var(--surface-container-high);
-  border-radius: 999px;
-  height: 6px;
+/* ===== NEUMORPHIC PROGRESS ===== */
+
+.neu-progress-track {
+  background: var(--neu-bg);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--neu-inset-sm);
+  height: 8px;
   overflow: hidden;
 }
-.progress-fill {
-  background: linear-gradient(90deg, var(--primary-container), var(--primary), var(--secondary));
-  height: 100%;
-  border-radius: 999px;
-  transition: width var(--transition-slow);
-}
 
-/* Stepper */
-.step-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0;
-}
-.step-dot {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  transition: all var(--transition-base);
-}
-.step-dot.completed {
-  background: var(--primary-container);
-  color: white;
-}
-.step-dot.active {
-  background: var(--primary);
-  color: var(--on-primary);
-  box-shadow: var(--shadow-glow-strong);
-}
-.step-dot.pending {
-  background: var(--surface-container-high);
-  color: var(--outline);
-}
-.step-line {
-  height: 2px;
-  flex: 1;
-  background: var(--surface-container-high);
-  transition: background var(--transition-base);
-}
-.step-line.completed {
-  background: var(--primary-container);
+.neu-progress-fill {
+  background: linear-gradient(90deg, var(--primary-container), var(--primary));
+  border-radius: var(--radius-pill);
+  box-shadow: 0 0 12px var(--accent-glow);
+  height: 100%;
+  transition: width var(--transition-slow);
 }
 
 /* ===== ANIMATIONS ===== */
 
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: var(--shadow-glow); }
-  50% { box-shadow: var(--shadow-glow-strong); }
+  0%, 100% { box-shadow: 0 0 12px var(--accent-glow); }
+  50% { box-shadow: 0 0 24px rgba(92, 31, 222, 0.5); }
 }
 
 @keyframes shimmer {
@@ -351,14 +362,9 @@ body::before {
   100% { background-position: 200% 0; }
 }
 
-@keyframes page-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes scale-spring {
   0% { transform: scale(0); }
-  60% { transform: scale(1.15); }
+  60% { transform: scale(1.12); }
   100% { transform: scale(1); }
 }
 
@@ -368,43 +374,25 @@ body::before {
   100% { background-position: 0% 50%; }
 }
 
-/* Floating orb animation — slow, organic movement */
+/* Floating orbs — very subtle on neumorphic bg */
 @keyframes orb-float-1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  25% { transform: translate(40px, -60px) scale(1.1); }
-  50% { transform: translate(-20px, -30px) scale(0.95); }
-  75% { transform: translate(30px, 20px) scale(1.05); }
+  25% { transform: translate(30px, -40px) scale(1.05); }
+  50% { transform: translate(-15px, -20px) scale(0.97); }
+  75% { transform: translate(20px, 15px) scale(1.03); }
 }
 
 @keyframes orb-float-2 {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  25% { transform: translate(-50px, 30px) scale(1.05); }
-  50% { transform: translate(30px, 50px) scale(0.9); }
-  75% { transform: translate(-40px, -20px) scale(1.1); }
-}
-
-@keyframes orb-float-3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(60px, 40px) scale(1.08); }
-  66% { transform: translate(-30px, -50px) scale(0.92); }
-}
-
-/* Border glow pulse — for focused inputs */
-@keyframes border-glow {
-  0%, 100% { border-color: rgba(205, 189, 255, 0.4); box-shadow: 0 0 0 3px rgba(92, 31, 222, 0.1), 0 0 20px rgba(92, 31, 222, 0.15); }
-  50% { border-color: rgba(205, 189, 255, 0.6); box-shadow: 0 0 0 3px rgba(92, 31, 222, 0.15), 0 0 30px rgba(92, 31, 222, 0.25); }
+  25% { transform: translate(-35px, 20px) scale(1.03); }
+  50% { transform: translate(20px, 35px) scale(0.95); }
+  75% { transform: translate(-25px, -15px) scale(1.05); }
 }
 
 /* Typing dots */
 @keyframes typing-bounce {
   0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-4px); }
-}
-
-/* Gentle rotate for visual interest */
-@keyframes slow-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  30% { transform: translateY(-3px); }
 }
 
 .animate-fade-in {
@@ -417,7 +405,6 @@ body::before {
   animation: fade-in-up 0.6s ease-out forwards;
 }
 
-/* Ensure content is visible when animations are disabled (prefers-reduced-motion or no-JS) */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -434,11 +421,7 @@ body::before {
     transform: none !important;
   }
 
-  .animate-pulse-glow,
-  .animate-shimmer,
-  .orb {
-    animation: none;
-  }
+  .orb { animation: none; }
 }
 
 .animate-pulse-glow {
@@ -446,16 +429,12 @@ body::before {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent 0%, rgba(205, 189, 255, 0.05) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(205, 189, 255, 0.04) 50%, transparent 100%);
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
 }
 
-.page-enter {
-  animation: page-enter 0.3s ease-out;
-}
-
-/* Staggered animation delays */
+/* Staggered delays */
 .delay-1 { animation-delay: 0.1s; }
 .delay-2 { animation-delay: 0.2s; }
 .delay-3 { animation-delay: 0.3s; }
@@ -464,79 +443,38 @@ body::before {
 .delay-6 { animation-delay: 0.6s; }
 .delay-7 { animation-delay: 0.7s; }
 
-/* ===== FLOATING ORBS ===== */
+/* ===== FLOATING ORBS (very subtle on neumorphic bg) ===== */
 
 .orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
+  filter: blur(100px);
   pointer-events: none;
   will-change: transform;
 }
 
 .orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(92, 31, 222, 0.15) 0%, transparent 70%);
-  animation: orb-float-1 20s ease-in-out infinite;
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(92, 31, 222, 0.08) 0%, transparent 70%);
+  animation: orb-float-1 25s ease-in-out infinite;
 }
 
 .orb-2 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(21, 150, 239, 0.12) 0%, transparent 70%);
-  animation: orb-float-2 25s ease-in-out infinite;
-}
-
-.orb-3 {
   width: 350px;
   height: 350px;
-  background: radial-gradient(circle, rgba(149, 0, 149, 0.1) 0%, transparent 70%);
-  animation: orb-float-3 22s ease-in-out infinite;
-}
-
-/* ===== PROMPT INPUT FOCUS GLOW ===== */
-
-.prompt-textarea:focus {
-  animation: border-glow 3s ease-in-out infinite;
-}
-
-/* ===== CARD SHINE EFFECT ===== */
-
-.card-shine {
-  position: relative;
-  overflow: hidden;
-}
-
-.card-shine::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(205, 189, 255, 0.03) 50%,
-    transparent 100%
-  );
-  transition: left 0.5s ease;
-  pointer-events: none;
-}
-
-.card-shine:hover::before {
-  left: 100%;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.06) 0%, transparent 70%);
+  animation: orb-float-2 30s ease-in-out infinite;
 }
 
 /* ===== TYPING INDICATOR ===== */
 
 .typing-dot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--primary);
+  background: var(--primary-container);
   animation: typing-bounce 1.4s ease-in-out infinite;
 }
 
@@ -545,21 +483,17 @@ body::before {
 
 /* ===== SCROLLBAR ===== */
 
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--surface-container-low);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--outline-variant);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--outline);
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--outline); }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent;
 }
 
-/* ===== FOCUS VISIBLE ===== */
+/* ===== FOCUS ===== */
 
 *:focus-visible {
   outline: 2px solid var(--primary);
@@ -571,59 +505,31 @@ body::before {
 .btn-ghost:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(92, 31, 222, 0.2);
+  box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
-.stage-input:focus-visible {
-  outline: none; /* uses its own :focus styles */
-}
-
-/* ===== LOADING SKELETON ===== */
-
-@keyframes skeleton-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
-}
+/* ===== SKELETON ===== */
 
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--surface-container-low) 0%,
-    var(--surface-container-high) 50%,
-    var(--surface-container-low) 100%
+    rgba(163, 177, 198, 0.15) 0%,
+    rgba(163, 177, 198, 0.3) 50%,
+    rgba(163, 177, 198, 0.15) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 1.8s ease-in-out infinite;
   border-radius: var(--radius-md);
+  box-shadow: var(--neu-inset-sm);
 }
 
-.skeleton-text {
-  height: 0.75rem;
-  margin-bottom: 0.5rem;
-  border-radius: var(--radius-sm);
-}
-
-.skeleton-heading {
-  height: 1.5rem;
-  width: 60%;
-  margin-bottom: 0.75rem;
-  border-radius: var(--radius-sm);
-}
-
-.skeleton-rect {
-  border-radius: var(--radius-lg);
-}
-
-/* ===== FIREFOX SCROLLBAR ===== */
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--outline-variant) var(--surface-container-low);
-}
+.skeleton-text { height: 0.75rem; margin-bottom: 0.5rem; }
+.skeleton-heading { height: 1.5rem; width: 60%; margin-bottom: 0.75rem; }
+.skeleton-rect { border-radius: var(--radius-lg); }
 
 /* ===== SELECTION ===== */
 
 ::selection {
-  background: rgba(92, 31, 222, 0.4);
+  background: rgba(92, 31, 222, 0.2);
   color: var(--on-surface);
 }
