@@ -108,6 +108,7 @@ export const GenerateRequestSchema = z.object({
   engine: z.enum(["veo3", "nano-banan", "auto"]).optional().default("auto"),
   resolution: z.enum(["720p", "1080p"]).optional().default("720p"),
   sceneCount: z.number().min(1).max(8).optional().default(5),
+  // 3-path architecture
   pathType: z.enum(["path-a", "path-b", "path-c"]).optional(),
   pathConfig: z.record(z.string(), z.unknown()).optional(),
 });

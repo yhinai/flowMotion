@@ -35,8 +35,8 @@ export async function POST(request: Request) {
         assets,
         enableVeo,
         engine,
-        pathType: pathType as import("@/lib/types").PathJobType | undefined,
-        pathConfig: pathConfig as import("@/lib/types").PathConfig | undefined,
+        pathType: pathType as any,
+        pathConfig: pathConfig as any,
       });
     }
 

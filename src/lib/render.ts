@@ -312,7 +312,9 @@ export async function renderCaptionedVideo(
 
   const durationInFrames = Math.round((durationMs / 1000) * FPS);
 
-  const inputProps = { videoSrc: videoPath, captions };
+  // Remotion's OffthreadVideo needs a URL — convert local paths to file:// protocol
+  const videoSrc = videoPath.startsWith("http") ? videoPath : `file://${videoPath}`;
+  const inputProps = { videoSrc, captions };
 
   const composition = await selectComposition({
     serveUrl: bundled,
