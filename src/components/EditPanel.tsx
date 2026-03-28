@@ -16,169 +16,74 @@ export default function EditPanel({ currentStyle, onStyleChange }: EditPanelProp
   const [error, setError] = useState<string | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    historyEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [history]);
+  useEffect(() => { historyEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history]);
 
   const handleSubmit = async () => {
     if (!instruction.trim() || isLoading) return;
     setError(null);
     setIsLoading(true);
     try {
-      const res = await fetch("/api/edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction, currentStyle }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Request failed (${res.status})`);
-      }
+      const res = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction, currentStyle }) });
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || `Request failed (${res.status})`); }
       const data: EditResponse = await res.json();
-      const entry: EditHistoryEntry = {
-        instruction,
-        style: data.style,
-        explanation: data.explanation,
-        timestamp: new Date().toISOString(),
-      };
-      setHistory((prev) => [...prev, entry]);
+      setHistory((prev) => [...prev, { instruction, style: data.style, explanation: data.explanation, timestamp: new Date().toISOString() }]);
       onStyleChange(data.style, data.explanation);
       setInstruction("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleUndo = () => {
-    if (history.length === 0) return;
-    const newHistory = history.slice(0, -1);
-    setHistory(newHistory);
-    const previousStyle = newHistory.length > 0 ? newHistory[newHistory.length - 1].style : DEFAULT_STYLE;
-    onStyleChange(previousStyle, "Reverted to previous style");
-  };
-
-  const handleReset = () => {
-    setHistory([]);
-    onStyleChange(DEFAULT_STYLE, "Reset to default style");
-  };
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch (err) { setError(err instanceof Error ? err.message : "Something went wrong"); } finally { setIsLoading(false); }
   };
 
   return (
-    <div className="neu-raised flex h-full flex-col animate-fade-in" style={{ borderRadius: "var(--radius-xl)" }}>
-      {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(163, 177, 198, 0.2)" }}>
-        <h2 className="text-headline-md" style={{ fontSize: "1.15rem" }}>Style Editor</h2>
-        <div className="flex gap-1.5">
-          <button
-            onClick={handleUndo}
-            disabled={history.length === 0}
-            className="neu-button px-2.5 py-1 text-xs disabled:opacity-25 disabled:cursor-not-allowed"
-          >
-            Undo
-          </button>
-          <button onClick={handleReset} className="neu-button px-2.5 py-1 text-xs">
-            Reset
-          </button>
+    <div className="card flex h-full flex-col overflow-hidden animate-fade-in">
+      <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border-light)" }}>
+        <h2 className="text-heading-sm">Style Editor</h2>
+        <div className="flex gap-1">
+          <button onClick={() => { if (history.length === 0) return; const h = history.slice(0, -1); setHistory(h); onStyleChange(h.length > 0 ? h[h.length - 1].style : DEFAULT_STYLE, "Reverted"); }} disabled={history.length === 0} className="btn-ghost text-[0.75rem] disabled:opacity-30">Undo</button>
+          <button onClick={() => { setHistory([]); onStyleChange(DEFAULT_STYLE, "Reset"); }} className="btn-ghost text-[0.75rem]">Reset</button>
         </div>
       </div>
 
-      {/* History */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {history.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center gap-5">
-            <p className="text-center text-sm" style={{ color: "var(--outline)" }}>
-              Describe how you&apos;d like to edit the video style
-            </p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {["Make title bigger", "Dark overlay", "Hide subtitles", "Serif font"].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => setInstruction(suggestion)}
-                  className="neu-raised-sm px-3 py-1.5 text-xs transition-all duration-200"
-                  style={{ color: "var(--primary)", borderRadius: "var(--radius-pill)" }}
-                >
-                  {suggestion}
-                </button>
+          <div className="flex h-full flex-col items-center justify-center gap-4">
+            <p className="text-caption text-center">Describe how to edit the video style</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {["Make title bigger", "Dark overlay", "Serif font"].map((s) => (
+                <button key={s} onClick={() => setInstruction(s)} className="badge badge-primary cursor-pointer text-[0.6875rem]">{s}</button>
               ))}
             </div>
           </div>
         )}
         {history.map((entry, i) => (
-          <div key={i} className="animate-fade-in space-y-2" style={{ animationDelay: `${i * 0.05}s` }}>
+          <div key={i} className="space-y-2 animate-fade-in">
             <div className="flex justify-end">
-              <div className="neu-raised-sm max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm" style={{ color: "var(--primary-fixed)" }}>
-                {entry.instruction}
-              </div>
+              <div className="max-w-[85%] rounded-lg px-3 py-2 text-[0.8125rem]" style={{ background: "var(--primary-lighter)", color: "var(--primary)" }}>{entry.instruction}</div>
             </div>
             <div className="flex justify-start">
-              <div className="neu-inset-sm max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm" style={{ color: "var(--on-surface-variant)" }}>
-                {entry.explanation}
-                <span className="block mt-1 text-[0.625rem]" style={{ color: "var(--outline)" }}>
-                  {formatTime(entry.timestamp)}
-                </span>
-              </div>
+              <div className="max-w-[85%] rounded-lg px-3 py-2 text-[0.8125rem]" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)" }}>{entry.explanation}</div>
             </div>
           </div>
         ))}
-        {isLoading && (
-          <div className="flex items-center gap-1.5 px-1 py-2">
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-          </div>
-        )}
+        {isLoading && <div className="flex gap-1 px-1 py-2"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></div>}
         <div ref={historyEndRef} />
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="mx-5 mb-2 text-xs neu-inset-sm rounded-lg px-3 py-2" style={{ color: "var(--error)" }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="mx-4 mb-2 text-[0.75rem] rounded-md px-3 py-1.5" style={{ background: "var(--error-light)", color: "var(--error)" }}>{error}</div>}
 
-      {/* Input */}
-      <div className="px-4 py-3" style={{ borderTop: "1px solid rgba(163, 177, 198, 0.2)" }}>
-        <div className="flex items-center gap-2">
+      <div className="p-3" style={{ borderTop: "1px solid var(--border-light)" }}>
+        <div className="flex gap-2">
           <input
             type="text"
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            placeholder="Make the title bigger and blue..."
+            placeholder="Make the title bigger..."
             disabled={isLoading}
-            className="neu-inset-sm flex-1 text-sm px-3.5 py-2 outline-none disabled:opacity-40"
-            style={{ color: "var(--on-surface)", borderRadius: "var(--radius-md)" }}
+            className="input flex-1 disabled:opacity-50"
+            style={{ padding: "0.5rem 0.75rem", fontSize: "0.8125rem" }}
           />
-          <button
-            onClick={handleSubmit}
-            disabled={!instruction.trim() || isLoading}
-            aria-label={isLoading ? "Sending edit instruction" : "Send edit instruction"}
-            className="neu-button flex h-9 w-9 flex-shrink-0 items-center justify-center disabled:opacity-25 disabled:cursor-not-allowed"
-            style={{
-              borderRadius: "var(--radius-md)",
-              background: instruction.trim()
-                ? "linear-gradient(145deg, #7340F0, #5520D0)"
-                : "linear-gradient(145deg, #EDF1F7, #D9DDE5)",
-              color: instruction.trim() ? "white" : "var(--outline)",
-            }}
-          >
-            {isLoading ? (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : (
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12m-5-5l5 5-5 5" />
-              </svg>
-            )}
+          <button onClick={handleSubmit} disabled={!instruction.trim() || isLoading} className="btn-primary disabled:opacity-30" style={{ padding: "0.5rem 0.75rem" }}>
+            {isLoading ? <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+            : <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12m-5-5l5 5-5 5" /></svg>}
           </button>
         </div>
       </div>

@@ -38,93 +38,66 @@ export default function AssetUploader({ assets, onAssetsChange, disabled }: Asse
     if (files[0]) uploadFile(files[0]);
   }, [disabled, uploadFile]);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadFile(file);
-    e.target.value = "";
-  }, [uploadFile]);
-
-  const addUrl = useCallback(() => {
-    const url = urlInput.trim();
-    if (!url) return;
-    onAssetsChange([...assets, url]);
-    setUrlInput("");
-  }, [urlInput, assets, onAssetsChange]);
-
-  const removeAsset = useCallback((index: number) => {
-    onAssetsChange(assets.filter((_, i) => i !== index));
-  }, [assets, onAssetsChange]);
-
   return (
-    <div className="space-y-3">
-      <label className="text-label-md">
-        Assets{" "}
-        <span style={{ color: "var(--outline)", fontWeight: 400, textTransform: "none", letterSpacing: "normal", fontSize: "0.7rem" }}>
-          (optional)
-        </span>
+    <div className="space-y-2">
+      <label className="text-label">
+        Assets <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>(optional)</span>
       </label>
 
-      {/* Drop zone — neumorphic inset well */}
       <div
         onDragOver={(e) => { e.preventDefault(); if (!disabled) setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => !disabled && fileInputRef.current?.click()}
-        className={`neu-inset flex cursor-pointer flex-col items-center gap-2 p-5 transition-all duration-200 ${disabled ? "opacity-35 cursor-not-allowed" : ""}`}
+        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg border-2 border-dashed p-4 transition-all duration-150 ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         style={{
-          boxShadow: isDragging
-            ? "inset 6px 6px 12px var(--neu-shadow-dark), inset -6px -6px 12px var(--neu-shadow-light), 0 0 0 3px var(--accent-glow)"
-            : "var(--neu-inset)",
+          borderColor: isDragging ? "var(--primary)" : "var(--border)",
+          background: isDragging ? "var(--primary-lighter)" : "transparent",
         }}
       >
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} style={{ color: "var(--outline)" }}>
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} style={{ color: "var(--text-tertiary)" }}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
         </svg>
-        <span className="text-xs" style={{ color: "var(--outline)" }}>
-          {isUploading ? "Uploading..." : "Drop images here or click to upload"}
+        <span className="text-[0.8125rem]" style={{ color: "var(--text-tertiary)" }}>
+          {isUploading ? "Uploading..." : "Drop images or click to upload"}
         </span>
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" disabled={disabled} />
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} className="hidden" disabled={disabled} />
       </div>
 
-      {/* URL input */}
       <div className="flex gap-2">
         <input
           type="text"
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addUrl()}
+          onKeyDown={(e) => { if (e.key === "Enter") { const url = urlInput.trim(); if (url) { onAssetsChange([...assets, url]); setUrlInput(""); } } }}
           placeholder="Or paste image URL..."
           disabled={disabled}
-          className="neu-inset-sm flex-1 px-3.5 py-2 text-sm outline-none disabled:opacity-35"
-          style={{ color: "var(--on-surface)", borderRadius: "var(--radius-md)" }}
+          className="input flex-1"
+          style={{ padding: "0.5rem 0.75rem", fontSize: "0.8125rem" }}
         />
         <button
           type="button"
-          onClick={addUrl}
+          onClick={() => { const url = urlInput.trim(); if (url) { onAssetsChange([...assets, url]); setUrlInput(""); } }}
           disabled={disabled || !urlInput.trim()}
-          className="neu-button px-4 py-2 text-sm font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+          className="btn-secondary text-[0.8125rem] disabled:opacity-40"
+          style={{ padding: "0.5rem 0.75rem" }}
         >
           Add
         </button>
       </div>
 
-      {/* Thumbnails */}
       {assets.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {assets.map((url, index) => (
-            <div
-              key={index}
-              className="group relative h-14 w-14 overflow-hidden neu-raised-sm"
-              style={{ borderRadius: "var(--radius-md)" }}
-            >
+          {assets.map((url, i) => (
+            <div key={i} className="group relative h-12 w-12 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={`Asset ${index + 1}`} className="h-full w-full object-cover" />
+              <img src={url} alt={`Asset ${i + 1}`} className="h-full w-full object-cover" />
               <button
                 type="button"
-                onClick={() => removeAsset(index)}
-                className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                onClick={() => onAssetsChange(assets.filter((_, idx) => idx !== i))}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
               >
-                <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
