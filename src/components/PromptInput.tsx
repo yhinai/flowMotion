@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 type SourceType = "prompt" | "youtube" | "github";
 
@@ -13,6 +13,8 @@ interface DetectedSource {
 interface PromptInputProps {
   onSubmit: (prompt: string, resolution: string, sceneCount: number, source?: { type: SourceType; url: string }) => void;
   isLoading: boolean;
+  /** Injected prompt (e.g. from LiveTopics). Replaces the current value when changed. */
+  externalValue?: string;
 }
 
 const YOUTUBE_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/;
@@ -30,10 +32,16 @@ function detectSource(text: string): DetectedSource | null {
   return null;
 }
 
-export default function PromptInput({ onSubmit, isLoading }: PromptInputProps) {
+export default function PromptInput({ onSubmit, isLoading, externalValue }: PromptInputProps) {
   const [prompt, setPrompt] = useState("");
   const [resolution, setResolution] = useState("1080p");
   const [sceneCount, setSceneCount] = useState(5);
+
+  useEffect(() => {
+    if (externalValue !== undefined && externalValue !== "") {
+      setPrompt(externalValue);
+    }
+  }, [externalValue]);
 
   const detectedSource = useMemo(() => detectSource(prompt), [prompt]);
 

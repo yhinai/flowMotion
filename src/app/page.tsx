@@ -7,6 +7,7 @@ import TemplatePicker from "@/components/TemplatePicker";
 import EngineSelector from "@/components/EngineSelector";
 import AssetUploader from "@/components/AssetUploader";
 import Navbar from "@/components/Navbar";
+import LiveTopics from "@/components/LiveTopics";
 import type { TemplateIdOrCustom, GenerationEngine } from "@/lib/types";
 
 export default function Home() {
@@ -16,6 +17,7 @@ export default function Home() {
   const [templateId, setTemplateId] = useState<TemplateIdOrCustom>("custom");
   const [assets, setAssets] = useState<string[]>([]);
   const [engine, setEngine] = useState<GenerationEngine>("auto");
+  const [injectedPrompt, setInjectedPrompt] = useState("");
 
   async function handleSubmit(
     prompt: string,
@@ -96,7 +98,12 @@ export default function Home() {
           className="w-full max-w-3xl space-y-6 opacity-0 animate-fade-in-up delay-3"
           style={{ animationFillMode: "forwards" }}
         >
-          <PromptInput onSubmit={handleSubmit} isLoading={isLoading} />
+          <PromptInput onSubmit={handleSubmit} isLoading={isLoading} externalValue={injectedPrompt} />
+
+          <LiveTopics
+            onSelectTopic={(prompt) => setInjectedPrompt(prompt)}
+            disabled={isLoading}
+          />
 
           <EngineSelector
             selected={engine}
@@ -247,6 +254,8 @@ export default function Home() {
           <span className="text-[var(--on-surface-variant)]">assistant-ui</span>
           {" \u00B7 "}
           <span className="text-[var(--on-surface-variant)]">Augment Code</span>
+          {" \u00B7 "}
+          <span className="text-[var(--on-surface-variant)]">Nexla</span>
         </p>
       </footer>
     </div>
