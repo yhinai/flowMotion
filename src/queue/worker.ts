@@ -2126,7 +2126,13 @@ async function processPathBJob(
           console.log(`[RepoSlides] Step 3: Rendering ${slideshow.slides.length} slides with Remotion...`);
 
           // Convert slides to text lines for TextVideo composition
-          const lines = slideshow.slides.map((slide) => {
+          // Cap total video at 60 seconds max
+          const MAX_VIDEO_SECONDS = 60;
+          const SECONDS_PER_SLIDE = 4;
+          const maxSlides = Math.floor(MAX_VIDEO_SECONDS / SECONDS_PER_SLIDE); // 15
+          const cappedSlides = slideshow.slides.slice(0, maxSlides);
+
+          const lines = cappedSlides.map((slide) => {
             if (slide.type === "title") {
               return `${slide.title}${slide.subtitle ? "\n" + slide.subtitle : ""}`;
             }
@@ -2142,12 +2148,13 @@ async function processPathBJob(
             return slide.title;
           });
 
-          // Use TextVideo renderer with the generated lines
+          const totalDuration = lines.length * SECONDS_PER_SLIDE;
           console.log(`[RepoSlides] Rendering to: ${outputPath}`);
-          console.log(`[RepoSlides] Text lines: ${lines.length}`);
+          console.log(`[RepoSlides] Slides: ${lines.length}, Duration: ${totalDuration}s (max ${MAX_VIDEO_SECONDS}s)`);
+
           await renderTextVideo(
             lines.join("\n"),
-            { aspectRatio: config.aspectRatio, duration: 4, musicUrl },
+            { aspectRatio: config.aspectRatio, duration: SECONDS_PER_SLIDE, musicUrl },
             outputPath
           );
           console.log(`[RepoSlides] Step 3 DONE: Render complete`);

@@ -88,11 +88,77 @@ async function sendMessage(
   }
 }
 
+/**
+ * Extract local file path from a localhost download URL.
+ * Returns the path if it's a local URL, null otherwise.
+ */
+function extractLocalPath(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+      const filePath = parsed.searchParams.get("path");
+      if (filePath && filePath.startsWith("/tmp/")) return filePath;
+    }
+  } catch { /* not a valid URL */ }
+  return null;
+}
+
+/**
+ * Upload a local file directly to Telegram via multipart form-data.
+ */
+async function sendVideoFromDisk(
+  chatId: number,
+  filePath: string,
+  caption?: string,
+): Promise<boolean> {
+  try {
+    const { readFile } = await import("fs/promises");
+    const fileBuffer = await readFile(filePath);
+    const fileName = filePath.split("/").pop() ?? "video.mp4";
+
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("video", new Blob([fileBuffer], { type: "video/mp4" }), fileName);
+    if (caption) form.append("caption", caption);
+    form.append("supports_streaming", "true");
+
+    console.log(`[Bot] Uploading ${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB video directly to Telegram...`);
+    const res = await fetch(`${API_BASE}/sendVideo`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (res.ok) {
+      console.log("[Bot] Direct file upload to Telegram SUCCESS");
+      return true;
+    }
+
+    const err = await res.json().catch(() => ({}));
+    console.warn(`[Bot] Direct upload failed (HTTP ${res.status}):`, err);
+    return false;
+  } catch (err) {
+    console.warn("[Bot] Direct upload failed:", err);
+    return false;
+  }
+}
+
 async function sendVideo(
   chatId: number,
   videoUrl: string,
   caption?: string,
 ): Promise<void> {
+  // If it's a local URL, upload the file directly from disk
+  const localPath = extractLocalPath(videoUrl);
+  if (localPath) {
+    console.log(`[Bot] Detected local file: ${localPath} — uploading directly`);
+    const ok = await sendVideoFromDisk(chatId, localPath, caption);
+    if (ok) return;
+    // If direct upload fails, fall through to text link
+    await sendMessage(chatId, `Your video is ready! Download it here:\n(File: ${localPath.split("/").pop()})`);
+    return;
+  }
+
   const MAX_RETRIES = 4;
   const RETRY_DELAY_MS = 5_000;
 
@@ -598,7 +664,7 @@ async function pollAndDeliver(
   preJobPayload?: PreJobPayload,
 ): Promise<void> {
   const start = Date.now();
-  let lastStage = "";
+  let lastMessage = "";
 
   while (Date.now() - start < MAX_WAIT_MS) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -606,17 +672,12 @@ async function pollAndDeliver(
     const status = getJobStatus(jobId);
     if (!status) continue;
 
-    if (status.stage !== lastStage) {
-      lastStage = status.stage;
-      const stageLabel: Record<string, string> = {
-        generating_script: "Writing script...",
-        generating_clips: "Generating video...",
-        uploading_assets: "Uploading assets...",
-        composing_video: "Composing final video...",
-      };
-      if (stageLabel[status.stage]) {
-        await sendMessage(chatId, stageLabel[status.stage]);
-      }
+    // Send real-time updates whenever the message changes
+    if (status.message && status.message !== lastMessage) {
+      lastMessage = status.message;
+      const pct = status.progress ?? 0;
+      const bar = progressBar(pct);
+      await sendMessage(chatId, `${bar} ${pct}%\n${status.message}`);
     }
 
     if (status.stage === "completed" && status.downloadUrl) {
@@ -636,6 +697,12 @@ async function pollAndDeliver(
 
   await sendMessage(chatId, "Generation timed out. Please try again.");
   resetState(chatId);
+}
+
+function progressBar(pct: number): string {
+  const filled = Math.round(pct / 10);
+  const empty = 10 - filled;
+  return "[" + "\u2588".repeat(filled) + "\u2591".repeat(empty) + "]";
 }
 
 async function deliverVideo(
