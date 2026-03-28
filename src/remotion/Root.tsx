@@ -13,6 +13,9 @@ import { SocialPromoSchema } from "./templates/social-promo/schema";
 import { BrandStory } from "./templates/brand-story/BrandStory";
 import { BrandStorySchema } from "./templates/brand-story/schema";
 import { EditorialVideo } from "./compositions/EditorialVideo";
+import { TextVideo } from "./compositions/TextVideo";
+import { ImageSlideshow } from "./compositions/ImageSlideshow";
+import { TextVideoSchema, ImageSlideshowSchema } from "./compositions/schemas";
 
 const sceneSchema = z.object({
   scene_number: z.number(),
@@ -191,6 +194,40 @@ const RemotionRoot: React.FC = () => {
           return { durationInFrames: totalSeconds * FPS };
         }}
       />
+      {/* Text Video — animated text on gradient backgrounds */}
+      <Composition
+        id="TextVideo"
+        component={TextVideo}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        schema={TextVideoSchema}
+        defaultProps={{
+          lines: ["Hello World", "This is a text video", "Created with FlowMotion"],
+          durationPerSlide: 3,
+        }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: props.lines.length * props.durationPerSlide * FPS,
+        })}
+      />
+
+      {/* Image Slideshow — images with crossfade transitions */}
+      <Composition
+        id="ImageSlideshow"
+        component={ImageSlideshow}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        schema={ImageSlideshowSchema}
+        defaultProps={{
+          images: [],
+          durationPerSlide: 4,
+        }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: Math.max(1, props.images.length) * props.durationPerSlide * FPS,
+        })}
+      />
+
       {/* Editorial Video — polished beat-driven motion graphics */}
       <Composition
         id="EditorialVideo"
