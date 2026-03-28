@@ -9,6 +9,12 @@
 <h1 align="center">FlowMotion</h1>
 <h3 align="center">AI-powered video generator &mdash; from prompt to MP4 in minutes</h3>
 
+<p align="center">
+  <a href="https://cloud.digitalocean.com/apps/new?repo=https://github.com/yhinai/flowMotion/tree/main">
+    <img src="https://www.deploytodo.com/do-btn-blue.svg" alt="Deploy to DO" width="200" />
+  </a>
+</p>
+
 ---
 
 ## What is FlowMotion?
@@ -29,9 +35,9 @@ Three paths to create video:
 
 | Sponsor | Integration |
 |---------|-------------|
+| **DigitalOcean** | App Platform deployment (`.do/app.yaml`) + Spaces CDN storage for all video assets |
+| **assistant-ui** | AI Director chat interface (`@assistant-ui/react`) + generation activity heatmap (`heat-graph`) |
 | **Nexla** | Live data pipelines feed trending topics (news, crypto, weather) for autonomous video generation |
-| **assistant-ui** | Powers the AI Director chat interface for interactive video editing |
-| **DigitalOcean Spaces** | CDN-backed object storage for video assets and rendered output |
 | **Augment Code** | AI-assisted development tooling used throughout the build |
 
 ---

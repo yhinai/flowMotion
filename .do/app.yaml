@@ -5,19 +5,23 @@ services:
   - name: web
     github:
       repo: yhinai/flowMotion
-      branch: charlie
+      branch: main
       deploy_on_push: true
     build_command: npm run build
     run_command: npm start
     http_port: 3000
     instance_size_slug: basic-xs
     instance_count: 1
+    health_check:
+      http_path: /api/live-topics
     envs:
       - key: GEMINI_API_KEY
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: ELEVENLABS_API_KEY
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: GOOGLE_CLOUD_PROJECT_ID
         scope: RUN_AND_BUILD_TIME
@@ -27,9 +31,11 @@ services:
         value: "us-central1"
       - key: DO_SPACES_KEY
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: DO_SPACES_SECRET
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: DO_SPACES_BUCKET
         scope: RUN_AND_BUILD_TIME
@@ -42,12 +48,14 @@ services:
         value: ""
       - key: SUPABASE_SERVICE_ROLE_KEY
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: SUPABASE_STORAGE_BUCKET
         scope: RUN_AND_BUILD_TIME
         value: "video-assets"
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: REDIS_URL
         scope: RUN_AND_BUILD_TIME
@@ -60,6 +68,7 @@ services:
         value: ""
       - key: NEXLA_API_KEY
         scope: RUN_AND_BUILD_TIME
+        type: SECRET
         value: ""
       - key: NEXLA_NEWS_NEXSET_ID
         scope: RUN_AND_BUILD_TIME
