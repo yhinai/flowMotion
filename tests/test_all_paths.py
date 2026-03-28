@@ -540,9 +540,9 @@ async def test_api_cancel(page, job_id):
         return
     try:
         res = await page.request.post(f"{BASE}/api/cancel/{job_id}")
-        # 200 = cancelled, 404 = already finished/not found — both acceptable
-        assert res.status in (200, 404), f"Unexpected status: {res.status}"
-        log("API: Cancel job", "pass", f"status={res.status}")
+        assert res.status == 200, f"Unexpected status: {res.status}"
+        body = await res.json()
+        log("API: Cancel job", "pass", f"status={body.get('status', '?')}")
     except Exception as e:
         log("API: Cancel job", "fail", str(e)[:200])
 

@@ -20,10 +20,7 @@ export async function POST(
   }
 
   if (job.stage === "completed" || job.stage === "failed") {
-    return NextResponse.json(
-      { error: `Job already ${job.stage}` },
-      { status: 400 }
-    );
+    return NextResponse.json({ jobId, status: job.stage });
   }
 
   // Mark as failed synchronously so concurrent requests see the updated state

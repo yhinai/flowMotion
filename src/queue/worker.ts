@@ -1389,13 +1389,24 @@ async function processPathCJob(
 
       checkCancelled(jobId);
       await updateJobPersistent(jobId, {
+        stage: "uploading_assets",
+        progress: 40,
+        message: "Uploading source video for rendering...",
+      });
+
+      // Remotion's OffthreadVideo requires an HTTP URL — upload to Supabase first
+      const sourceKey = generateKey(jobId, `source${path.extname(config.videoLocalPath) || ".mp4"}`);
+      const sourceVideoUrl = await uploadFile(config.videoLocalPath, sourceKey);
+
+      checkCancelled(jobId);
+      await updateJobPersistent(jobId, {
         stage: "composing_video",
         progress: 50,
         message: "Overlaying captions...",
       });
 
       const { renderCaptionedVideo } = await import("@/lib/render");
-      await renderCaptionedVideo(config.videoLocalPath, captions, outputPath);
+      await renderCaptionedVideo(sourceVideoUrl, captions, outputPath);
     } else {
       await updateJobPersistent(jobId, {
         stage: "generating_script",
