@@ -23,15 +23,14 @@ function getDemoData(): ActivityDataPoint[] {
       d.setDate(d.getDate() - day);
       d.setHours(hour, 0, 0, 0);
 
-      const isRecent = day <= 1;
       const isPeak = hour >= 9 && hour <= 22;
       const isFuture = day === 0 && hour > now.getHours();
 
       let count = 0;
       if (!isFuture) {
-        const chance = isRecent && isPeak ? 0.7 : isPeak ? 0.35 : 0.08;
+        const chance = isPeak ? 0.75 : 0.35;
         if (Math.random() < chance) {
-          count = isRecent ? 1 + Math.floor(Math.random() * 5) : 1 + Math.floor(Math.random() * 2);
+          count = 1 + Math.floor(Math.random() * 7);
         }
       }
 
