@@ -1224,13 +1224,18 @@ async function processPathAJob(
         ? "veo-3.0-generate-preview"
         : "veo-3.1-fast-generate-preview";
 
+    // Build visual description with optional style prefix
+    const visualDescription = config.style
+      ? `${config.style} style: ${config.prompt}`
+      : config.prompt;
+
     // Generate a single video clip directly from prompt
     const scene: Scene = {
       scene_number: 1,
       title: "AI Video",
-      visual_description: config.prompt,
-      narration_text: "",
-      duration_seconds: 8,
+      visual_description: visualDescription,
+      narration_text: config.prompt,
+      duration_seconds: config.durationSeconds ?? 8,
       camera_direction: "cinematic",
       mood: "dynamic",
       transition: "cut",
@@ -1240,9 +1245,61 @@ async function processPathAJob(
       model: modelId,
       aspectRatio: config.aspectRatio,
       resolution: "720p",
+      durationSeconds: config.durationSeconds,
+      firstFrameImageUrl: config.firstFrameImageUrl,
     });
 
     checkCancelled(jobId);
+
+    // Generate narration and SFX if audio settings are provided
+    let narrationUrl: string | undefined;
+    let sfxUrl: string | undefined;
+
+    if (config.audio?.narration || config.audio?.sfx) {
+      await updateJobPersistent(jobId, {
+        progress: 50,
+        message: "Generating audio (narration & sound effects)...",
+      });
+
+      const audioPromises: Promise<void>[] = [];
+
+      if (config.audio.narration) {
+        audioPromises.push(
+          generateAllNarrations([scene], config.audio.voiceId ? { voiceId: config.audio.voiceId } : undefined)
+            .then(async (narrationMap) => {
+              const narrationPath = narrationMap.get(1);
+              if (narrationPath) {
+                const narrationKey = generateKey(jobId, "narration-1.mp3");
+                narrationUrl = await uploadFile(narrationPath, narrationKey);
+                console.log(`Path A narration uploaded: ${narrationUrl}`);
+              }
+            })
+            .catch((err) => {
+              console.error(`Path A narration failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+            })
+        );
+      }
+
+      if (config.audio.sfx) {
+        audioPromises.push(
+          generateAllSFX([scene])
+            .then(async (sfxMap) => {
+              const sfxPath = sfxMap.get(1);
+              if (sfxPath) {
+                const sfxKey = generateKey(jobId, "sfx-1.mp3");
+                sfxUrl = await uploadFile(sfxPath, sfxKey);
+                console.log(`Path A SFX uploaded: ${sfxUrl}`);
+              }
+            })
+            .catch((err) => {
+              console.error(`Path A SFX failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+            })
+        );
+      }
+
+      await Promise.all(audioPromises);
+    }
+
     await updateJobPersistent(jobId, {
       stage: "uploading_assets",
       progress: 70,
@@ -1257,6 +1314,20 @@ async function processPathAJob(
       progress: 100,
       message: "Video generation completed",
       downloadUrl,
+      generatedScript: {
+        title: "AI Video",
+        theme: "ai-generated",
+        target_audience: "general",
+        music_prompt: "",
+        total_duration_seconds: 8,
+        scenes: [{
+          ...scene,
+          videoUrl: downloadUrl,
+          videoLocalPath: clipPath,
+          narrationAudioUrl: narrationUrl,
+          soundEffectUrl: sfxUrl,
+        }],
+      },
     });
   } catch (error) {
     await updateJobPersistent(jobId, {
@@ -1287,24 +1358,114 @@ async function processPathBJob(
       ? (config.text ?? "").slice(0, 100)
       : "image slideshow background";
 
+    const lines = config.type === "text-video"
+      ? (config.text ?? "").split("\n").map((l) => l.trim()).filter(Boolean)
+      : [];
     const totalSlides = config.type === "text-video"
-      ? (config.text ?? "").split("\n").filter(Boolean).length
+      ? lines.length
       : (config.images ?? []).length;
     const durationPerSlide = config.duration ?? (config.type === "text-video" ? 3 : 4);
     const totalDuration = totalSlides * durationPerSlide;
 
-    // Generate music (non-blocking — failure is acceptable)
+    // Build scenes for narration/SFX generation
+    const scenes: Scene[] = [];
+    if (config.audio?.narration || config.audio?.sfx) {
+      if (config.type === "text-video") {
+        lines.forEach((line, i) => {
+          scenes.push({
+            scene_number: i + 1,
+            title: line.slice(0, 50),
+            visual_description: line,
+            narration_text: line,
+            duration_seconds: durationPerSlide,
+            camera_direction: "static",
+            mood: "informative",
+            transition: "fade",
+          });
+        });
+      } else {
+        (config.images ?? []).forEach((_img, i) => {
+          scenes.push({
+            scene_number: i + 1,
+            title: `Slide ${i + 1}`,
+            visual_description: `Image slideshow slide ${i + 1}`,
+            narration_text: `Slide ${i + 1}`,
+            duration_seconds: durationPerSlide,
+            camera_direction: "static",
+            mood: "ambient",
+            transition: "fade",
+          });
+        });
+      }
+    }
+
+    // Run music, narration, and SFX generation in parallel (all non-blocking)
     let musicUrl: string | undefined;
-    try {
-      const musicPath = await generateMusic(
+    let narrationUrls = new Map<number, string>();
+    let sfxUrls = new Map<number, string>();
+
+    const audioPromises: Promise<void>[] = [];
+
+    // Music generation
+    audioPromises.push(
+      generateMusic(
         `Background music for: ${contentHint}`,
         { durationSeconds: totalDuration, mood: "upbeat", tempo: "medium" }
+      )
+        .then(async (musicPath) => {
+          const musicKey = generateKey(jobId, "music.wav");
+          musicUrl = await uploadFile(musicPath, musicKey);
+        })
+        .catch((err) => {
+          console.warn(`Path B music generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+        })
+    );
+
+    // Narration generation
+    if (config.audio?.narration && scenes.length > 0) {
+      audioPromises.push(
+        generateAllNarrations(scenes, config.audio.voiceId ? { voiceId: config.audio.voiceId } : undefined)
+          .then(async (narrationMap) => {
+            for (const [sceneNum, narrationPath] of narrationMap) {
+              try {
+                const narrationKey = generateKey(jobId, `narration-${sceneNum}.mp3`);
+                const url = await uploadFile(narrationPath, narrationKey);
+                narrationUrls.set(sceneNum, url);
+                console.log(`Path B narration for scene ${sceneNum} uploaded: ${url}`);
+              } catch (err) {
+                console.error(`Path B narration upload for scene ${sceneNum} failed: ${err instanceof Error ? err.message : err}`);
+              }
+            }
+          })
+          .catch((err) => {
+            console.error(`Path B narration generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+          })
       );
-      const musicKey = generateKey(jobId, "music.wav");
-      musicUrl = await uploadFile(musicPath, musicKey);
-    } catch (err) {
-      console.warn(`Path B music generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
     }
+
+    // SFX generation
+    if (config.audio?.sfx && scenes.length > 0) {
+      audioPromises.push(
+        generateAllSFX(scenes)
+          .then(async (sfxMap) => {
+            for (const [sceneNum, sfxPath] of sfxMap) {
+              try {
+                const sfxKey = generateKey(jobId, `sfx-${sceneNum}.mp3`);
+                const url = await uploadFile(sfxPath, sfxKey);
+                sfxUrls.set(sceneNum, url);
+                console.log(`Path B SFX for scene ${sceneNum} uploaded: ${url}`);
+              } catch (err) {
+                console.error(`Path B SFX upload for scene ${sceneNum} failed: ${err instanceof Error ? err.message : err}`);
+              }
+            }
+          })
+          .catch((err) => {
+            console.error(`Path B SFX generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+          })
+      );
+    }
+
+    await Promise.all(audioPromises);
 
     await updateJobPersistent(jobId, {
       progress: 20,

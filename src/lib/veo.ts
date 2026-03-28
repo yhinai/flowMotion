@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, VideoGenerationReferenceType } from "@google/genai";
 import { mkdir, access, writeFile } from "fs/promises";
 import path from "path";
 import type { Scene } from "./types";
@@ -7,6 +7,8 @@ export interface VeoConfig {
   aspectRatio?: "16:9" | "9:16";
   resolution?: "720p" | "1080p";
   model?: string;
+  durationSeconds?: 4 | 6 | 8;
+  firstFrameImageUrl?: string;
 }
 
 const DEFAULT_MODEL = "veo-3.1-fast-generate-preview";
@@ -86,6 +88,11 @@ export async function generateVideoClip(
 
   const ai = getAiClient();
 
+  // Build optional reference images for first-frame guidance
+  const referenceImages = config?.firstFrameImageUrl
+    ? [{ referenceImage: { imageUrl: config.firstFrameImageUrl }, referenceType: VideoGenerationReferenceType.STYLE }]
+    : undefined;
+
   let operation = await ai.models.generateVideos({
     model,
     prompt: scene.visual_description,
@@ -94,6 +101,8 @@ export async function generateVideoClip(
       resolution,
       numberOfVideos: 1,
       personGeneration: "allow_all",
+      ...(config?.durationSeconds ? { durationSeconds: config.durationSeconds } : {}),
+      ...(referenceImages ? { referenceImages } : {}),
     },
   });
 

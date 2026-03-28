@@ -12,6 +12,11 @@ export const ImageSlideshowSchema = z.object({
   musicUrl: z.string().optional().describe("Optional background music URL"),
 });
 
+export const StubCompositionSchema = z.object({
+  title: z.string().describe("Title text"),
+  subtitle: z.string().optional().describe("Optional subtitle text"),
+});
+
 export const CaptionedVideoSchema = z.object({
   videoSrc: z.string().describe("Source video file path or URL"),
   captions: z.array(z.object({

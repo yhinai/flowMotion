@@ -15,8 +15,12 @@ import { BrandStorySchema } from "./templates/brand-story/schema";
 import { EditorialVideo } from "./compositions/EditorialVideo";
 import { TextVideo } from "./compositions/TextVideo";
 import { ImageSlideshow } from "./compositions/ImageSlideshow";
-import { TextVideoSchema, ImageSlideshowSchema, CaptionedVideoSchema } from "./compositions/schemas";
+import { TextVideoSchema, ImageSlideshowSchema, CaptionedVideoSchema, StubCompositionSchema } from "./compositions/schemas";
 import { CaptionedVideo } from "./compositions/CaptionedVideo";
+import { MotionGraphics } from "./compositions/MotionGraphics";
+import { DataVisualization } from "./compositions/DataVisualization";
+import { ExplainerVideo as ExplainerVideoComp } from "./compositions/ExplainerVideo";
+import { PromoVideo } from "./compositions/PromoVideo";
 
 const sceneSchema = z.object({
   scene_number: z.number(),
@@ -248,6 +252,66 @@ const RemotionRoot: React.FC = () => {
           return {
             durationInFrames: Math.round((durationMs / 1000) * FPS),
           };
+        }}
+      />
+
+      {/* Motion Graphics — animated gradient title card */}
+      <Composition
+        id="MotionGraphics"
+        component={MotionGraphics}
+        schema={StubCompositionSchema}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        durationInFrames={5 * FPS}
+        defaultProps={{
+          title: "Motion Graphics",
+          subtitle: "Animated title card",
+        }}
+      />
+
+      {/* Data Visualization — bar chart stub */}
+      <Composition
+        id="DataVisualization"
+        component={DataVisualization}
+        schema={StubCompositionSchema}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        durationInFrames={5 * FPS}
+        defaultProps={{
+          title: "Data Overview",
+          subtitle: "Quarterly performance",
+        }}
+      />
+
+      {/* Explainer Video — step-by-step text reveal */}
+      <Composition
+        id="ExplainerVideoStub"
+        component={ExplainerVideoComp}
+        schema={StubCompositionSchema}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        durationInFrames={12 * FPS}
+        defaultProps={{
+          title: "How It Works",
+          subtitle: "A step-by-step guide",
+        }}
+      />
+
+      {/* Promo Video — product headline + CTA card */}
+      <Composition
+        id="PromoVideo"
+        component={PromoVideo}
+        schema={StubCompositionSchema}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        durationInFrames={5 * FPS}
+        defaultProps={{
+          title: "Introducing FlowMotion",
+          subtitle: "Try It Free",
         }}
       />
 

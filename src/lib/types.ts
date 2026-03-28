@@ -278,6 +278,9 @@ export interface PathAConfig {
   readonly aspectRatio: AspectRatio;
   readonly prompt: string;
   readonly audio?: AudioSettings;
+  readonly style?: string;
+  readonly durationSeconds?: 4 | 6 | 8;
+  readonly firstFrameImageUrl?: string;
 }
 
 /** Path B config: Remotion-only compositions */

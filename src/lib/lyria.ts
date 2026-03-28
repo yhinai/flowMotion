@@ -2,11 +2,14 @@ import { mkdir, access, writeFile, readdir } from "fs/promises";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
 
+export type LyriaModel = "lyria-2" | "lyria-3-clip" | "lyria-3-pro";
+
 export interface MusicConfig {
   durationSeconds: number;
   genre?: string;
   mood?: string;
   tempo?: "slow" | "medium" | "fast";
+  model?: LyriaModel;
 }
 
 const LYRIA_DIR = "/tmp/lyria";
@@ -75,14 +78,76 @@ export async function generateMusic(
   prompt: string,
   config: MusicConfig
 ): Promise<string> {
+  const model = config.model ?? "lyria-2";
+
   try {
+    if (model === "lyria-3-clip") {
+      return await generateWithLyria3(prompt, config, "lyria-3-clip-preview");
+    }
+    if (model === "lyria-3-pro") {
+      return await generateWithLyria3(prompt, config, "lyria-3-pro-preview");
+    }
+    // Default: lyria-2 (real-time streaming)
     return await generateWithLyria(prompt, config);
   } catch (err) {
     console.warn(
-      `Lyria generation failed: ${err instanceof Error ? err.message : err}. Falling back to placeholder.`
+      `Lyria generation failed (model=${model}): ${err instanceof Error ? err.message : err}. Falling back to placeholder.`
     );
     return await getPlaceholderMusic(config);
   }
+}
+
+/**
+ * Generate music using Lyria 3 models (Clip or Pro) via Gemini generateContent.
+ * These models use response_modalities: ["AUDIO"] and return inline audio data.
+ */
+export async function generateWithLyria3(
+  prompt: string,
+  config: MusicConfig,
+  modelId: "lyria-3-clip-preview" | "lyria-3-pro-preview"
+): Promise<string> {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not set — cannot use Lyria 3 API");
+  }
+
+  await ensureLyriaDir();
+
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  // Build a descriptive prompt incorporating genre/mood/tempo
+  const parts: string[] = [prompt];
+  if (config.genre) parts.push(`Genre: ${config.genre}`);
+  if (config.mood) parts.push(`Mood: ${config.mood}`);
+  if (config.tempo) parts.push(`Tempo: ${config.tempo}`);
+  parts.push(`Duration: approximately ${config.durationSeconds} seconds`);
+
+  const fullPrompt = parts.join(". ");
+
+  const response = await client.models.generateContent({
+    model: modelId,
+    contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+    config: {
+      responseModalities: ["AUDIO"],
+    },
+  });
+
+  // Extract inline audio data from the response
+  const candidate = response.candidates?.[0];
+  const audioPart = candidate?.content?.parts?.find(
+    (p: any) => p.inlineData?.mimeType?.startsWith("audio/")
+  );
+
+  if (!audioPart?.inlineData?.data) {
+    throw new Error(`Lyria 3 (${modelId}) returned no audio data`);
+  }
+
+  const audioBuffer = Buffer.from(audioPart.inlineData.data, "base64");
+  const mimeType = audioPart.inlineData.mimeType ?? "audio/wav";
+  const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("mp3") ? "mp3" : "wav";
+  const outputPath = path.join(LYRIA_DIR, `music-${modelId}-${Date.now()}.${ext}`);
+  await writeFile(outputPath, audioBuffer);
+
+  return outputPath;
 }
 
 export async function generateWithLyria(
