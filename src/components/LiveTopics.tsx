@@ -37,6 +37,7 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
   const [nexlaConnected, setNexlaConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   const fetchTopics = useCallback(async () => {
     try {
@@ -54,11 +55,13 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
   }, []);
 
   useEffect(() => {
+    setMounted(true);
     fetchTopics();
     const interval = setInterval(fetchTopics, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchTopics]);
 
+  if (!mounted) return null;
   if (!loading && topics.length === 0) return null;
 
   return (
