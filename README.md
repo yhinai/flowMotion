@@ -1,159 +1,86 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Google_Gemini-2.5_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" />
-  <img src="https://img.shields.io/badge/Google_Veo-3.1-EA4335?style=for-the-badge&logo=google&logoColor=white" />
-  <img src="https://img.shields.io/badge/Vercel-Chat_SDK-000000?style=for-the-badge&logo=vercel&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js_15-App_Router-000000?style=for-the-badge&logo=next.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/Google_Gemini-2.5_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+  <img src="https://img.shields.io/badge/Google_Veo-3-EA4335?style=for-the-badge&logo=google&logoColor=white" />
+  <img src="https://img.shields.io/badge/Remotion-Video-5A67D8?style=for-the-badge" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
 </p>
 
 <h1 align="center">FlowMotion</h1>
-<h3 align="center">Autonomous AI Video Agent &mdash; From Telegram Prompt to MP4 in Minutes</h3>
-
-<p align="center">
-  A multi-agent video production studio that compresses a multi-day studio workflow into a single chat message. It orchestrates Gemini 2.5 Flash as the "Director Agent", Veo 3.1 as the "Cinematographer", and ElevenLabs as the "Voice Actor", stitching everything together via Remotion directly from Telegram.
-</p>
-
-<p align="center">
-  <a href="https://cerebralvalley.ai/e/zero-to-agent-sf"><strong>Submission for Zero to Agent: Vercel x DeepMind Hackathon | San Francisco, March 2026</strong></a>
-</p>
+<h3 align="center">AI-powered video generator &mdash; from prompt to MP4 in minutes</h3>
 
 ---
 
-## The Problem
+## What is FlowMotion?
 
-**Video production is fragmented, expensive, and time-intensive.** When a marketing team needs a 30-second promotional video:
+FlowMotion is an autonomous AI video production pipeline. Describe a video in plain language and the system writes the script, generates cinematic clips, adds narration, and renders a final MP4 — all without manual editing.
 
-| Pain Point | Impact |
-|------------|--------|
-| **Multi-day turnaround** | Writing, storyboarding, sourcing footage, and editing takes days |
-| **High costs** | Stock footage licenses, voice actors, and editors are expensive |
-| **Tool fragmentation** | Switching between ChatGPT for scripts, Midjourney for assets, and Premiere for editing |
-| **Steep learning curve** | Video timeline editing requires specialized software skills |
+Three paths to create video:
 
-**The result:** High-quality video content remains inaccessible for quick iterations, educators, and indie hackers without massive budgets.
-
----
-
-## The Solution
-
-**FlowMotion** democratizes video creation by turning a single Telegram message into a fully composed, production-ready video. A sophisticated multi-model pipeline works completely autonomously behind the scenes, bridging the gap between cutting-edge generative AI and end-user simplicity.
-
-### The "3 AM Video Request" Story
-
-> It's 3:00 AM. A founder realizes they need a quick product teaser video for a Product Hunt launch tomorrow morning.
->
-> They open Telegram and message FlowMotion: *"Generate a 30-second cinematic teaser for a new AI coffee machine set in a futuristic cafe."*
->
-> Behind the scenes, **Vercel Chat SDK** routes the webhook. **Gemini 2.5 Flash** instantly writes a 4-scene script with exact camera movements and narration. **Veo 3.1** begins rendering breathtaking 4K clips for each scene while **ElevenLabs** generates the voiceover. **Remotion** automatically stitches the clips, overlays text, and renders the final MP4.
->
-> The bot replies: *"Here is your video."* **Total time: 5 minutes.**
+| Path | Description |
+|------|-------------|
+| **AI Video (Veo 3)** | Full autonomous pipeline: Gemini writes the script, Veo generates clips, ElevenLabs narrates, Remotion renders |
+| **Remotion-Only** | Bring your own clips — Remotion composes them with text overlays and transitions |
+| **Upload & Edit** | Upload existing video and use the AI Director chat to request edits |
 
 ---
 
-## Multimodal Pipeline Showcase
+## Sponsor Integrations
 
-This project answers the "Zero to Agent" challenge by taking full advantage of Vercel's agent stack infrastructure and Gemini's multimodal reasoning to create a tool people actually want to use:
-
-| Role | Technology | What It Does |
-|------|------------|--------------|
-| **The Interface** | Vercel Chat SDK (`@chat-adapter/telegram`) | Replaces complex Telegram API boilerplate with a beautiful, unified developer experience for handling direct messages and webhooks. |
-| **Director Agent** | Google Gemini 2.5 Flash | Uses strict Zod schemas to output a highly structured, scene-by-scene script with visual descriptions, camera directions, and TTS narration. |
-| **Cinematographer Agent** | Google Veo 3.1 | Translates Gemini's hyper-detailed visual prompts into breathtaking, cinematic video clips matching the required mood and duration. |
-| **Voice Actor Agent** | ElevenLabs | Generates incredibly realistic, emotional voiceovers perfectly synced to the generated script. |
-| **The Editor** | Remotion | Programmatically stitches the Veo video clips and ElevenLabs audio together server-side into a final, exportable MP4 file. |
-| **The Studio** | Supabase MCP | Provides storage buckets to seamlessly host the intermediate video and audio assets during the rendering pipeline. |
+| Sponsor | Integration |
+|---------|-------------|
+| **Nexla** | Live data pipelines feed trending topics (news, crypto, weather) for autonomous video generation |
+| **assistant-ui** | Powers the AI Director chat interface for interactive video editing |
+| **DigitalOcean Spaces** | CDN-backed object storage for video assets and rendered output |
+| **Augment Code** | AI-assisted development tooling used throughout the build |
 
 ---
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph Interface["The Interface (Telegram)"]
-        User["User Prompt"]
-        BotReply["Final MP4 Video"]
-    end
+See [`docs/flowmotion_architecture_v4.mermaid`](docs/flowmotion_architecture_v4.mermaid) for the full system diagram.
 
-    subgraph Vercel["Vercel Serverless Architecture"]
-        direction TB
-        Webhook["Vercel Chat SDK Webhook"]
-        JobQueue["Async Job Queue"]
-        RemotionRender["Remotion renderMedia()"]
-    end
-
-    subgraph Director["Director Agent (Gemini)"]
-        Gemini["Gemini 2.5 Flash<br/><code>Structured Zod Output</code>"]
-    end
-
-    subgraph Production["Production Crew Agents"]
-        direction LR
-        Veo["Google Veo 3.1<br/><code>Cinematic Clips</code>"]
-        Audio["ElevenLabs<br/><code>TTS Voiceover</code>"]
-    end
-
-    subgraph Storage["The Studio (Supabase)"]
-        Bucket["Supabase Storage<br/><code>video-assets</code>"]
-    end
-
-    User -->|"Message"| Webhook
-    Webhook --> JobQueue
-    JobQueue -->|"Prompt"| Gemini
-    Gemini -->|"Visual Prompts"| Veo
-    Gemini -->|"Narration Text"| Audio
-    
-    Veo -->|"Store .mp4"| Bucket
-    Audio -->|"Store .mp3"| Bucket
-    
-    JobQueue -.->|"Wait for assets"| RemotionRender
-    Bucket -->|"Fetch assets"| RemotionRender
-    RemotionRender -->|"Return MP4 URL"| BotReply
-
-    style Interface fill:#1e1b4b,stroke:#4f46e5,color:#e0e7ff
-    style Vercel fill:#000000,stroke:#666666,color:#ffffff
-    style Director fill:#1a1a2e,stroke:#4285F4,color:#e0e7ff
-    style Production fill:#0f172a,stroke:#EA4335,color:#e0e7ff
-    style Storage fill:#1c1c1c,stroke:#3ecf8e,color:#e0e7ff
-```
-
-### Agent Handoff Flow
-
-The entire process is completely hands-off. The output of one model perfectly dictates the input of the next:
-
-```mermaid
-sequenceDiagram
-    participant U as User (Telegram)
-    participant V as Vercel Chat SDK
-    participant G as Gemini 2.5 Flash
-    participant P as Production (Veo + ElevenLabs)
-    participant R as Remotion
-
-    U->>V: "Make a video about..."
-    V->>G: Generate structured script schema
-    G-->>V: JSON (Scenes, Visuals, Voiceover)
-    
-    par Scene Generation
-        V->>P: Veo: Generate clip from Visuals
-        V->>P: ElevenLabs: Generate TTS from Voiceover
-    end
-    
-    P-->>V: Asset URLs (saved to Supabase)
-    
-    V->>R: Stitch assets into Composition
-    R-->>V: Final rendered MP4 URL
-    
-    V->>U: Delivers final video in chat!
-```
+**Core flow:** User prompt &rarr; Gemini script &rarr; Veo clips + ElevenLabs narration &rarr; Remotion composition &rarr; MP4 output
 
 ---
 
-## What Makes This Different
+## Quick Start
 
-| Differentiator | Details |
-|----------------|---------|
-| **Zero UI Required** | Operates entirely via a Telegram bot. No complex video timelines to navigate. |
-| **LLM-Directed Video** | Instead of manually prompting video models, an LLM acts as the Director, ensuring visual cohesion and pacing. |
-| **Programmatic Composition** | Remotion handles stitching entirely in code on the server, requiring zero manual editing. |
-| **Unified Chat SDK** | Vercel's Chat SDK eliminates the pain of raw messaging APIs, allowing us to focus purely on the AI orchestration. |
+```bash
+git clone https://github.com/yhinai/flowMotion.git
+cd flowMotion
+cp .env.example .env
+# Fill in your API keys (see table below)
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to access the app.
+
+---
+
+## Environment Variables
+
+| Variable | Purpose | Where to get it |
+|----------|---------|-----------------|
+| `GEMINI_API_KEY` | Gemini + Veo video generation | [Google AI Studio](https://aistudio.google.com/apikey) |
+| `ELEVENLABS_API_KEY` | TTS narration and sound effects | [ElevenLabs Settings](https://elevenlabs.io/app/settings/api-keys) |
+| `GOOGLE_CLOUD_PROJECT_ID` | Vertex AI / Lyria music generation | [GCP Console](https://console.cloud.google.com) |
+| `GOOGLE_CLOUD_LOCATION` | Vertex AI region (default: `us-central1`) | Same as above |
+| `DO_SPACES_KEY` | DigitalOcean Spaces access key | [DO API Settings](https://cloud.digitalocean.com/account/api/spaces) |
+| `DO_SPACES_SECRET` | DigitalOcean Spaces secret key | Same as above |
+| `DO_SPACES_BUCKET` | Spaces bucket name (default: `flowmotion-videos`) | [DO Spaces](https://cloud.digitalocean.com/spaces) |
+| `DO_SPACES_REGION` | Spaces region (default: `nyc3`) | Same as above |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (fallback storage) | [Supabase Dashboard](https://supabase.com/dashboard) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | Same as above |
+| `NEXLA_API_KEY` | Nexla live data pipeline access | [Nexla](https://dataops.nexla.io) |
+| `NEXLA_NEWS_NEXSET_ID` | Nexla news flow ID | Same as above |
+| `NEXLA_CRYPTO_NEXSET_ID` | Nexla crypto flow ID | Same as above |
+| `NEXLA_WEATHER_NEXSET_ID` | Nexla weather flow ID | Same as above |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot interface (optional) | [@BotFather](https://t.me/BotFather) |
+| `REDIS_URL` | Redis for BullMQ job queue (optional) | Your Redis instance |
+| `ENABLE_BULLMQ` | Enable persistent job queue (`true`/`false`) | Set to `true` to enable |
+| `NEXT_PUBLIC_APP_URL` | Public app URL | Your deployment URL |
 
 ---
 
@@ -162,76 +89,21 @@ sequenceDiagram
 | Component | Technology |
 |-----------|-----------|
 | Framework | Next.js 15 (App Router) |
-| Hosting & Edge | Vercel Serverless Functions |
-| Chat Interface | Vercel Chat SDK (`@chat-adapter/telegram`) |
-| Scripting LLM | Google Gemini 2.5 Flash (`@google/genai`) |
-| Video Generation | Google Veo 3.1 |
-| Audio Generation | ElevenLabs |
-| Video Rendering | Remotion (`renderMedia`) |
-| Storage & Database | Supabase (Storage Buckets, MCP) |
+| Script Generation | Google Gemini 2.5 Flash |
+| Video Generation | Google Veo 3 |
+| Narration | ElevenLabs |
+| Music | Google Lyria 2 |
+| Video Composition | Remotion |
+| Chat UI | assistant-ui |
+| Live Data | Nexla |
+| Storage | DigitalOcean Spaces / Supabase (fallback) |
+| Bot Interface | Telegram |
 
 ---
 
-## Quick Start
+## Deploy to DigitalOcean
 
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/yhinai/flowMotion.git
-cd flowMotion
-```
-
-### 2. Set Up Environment Variables
-
-Copy the example environment file:
-
-```bash
-cp .env.example .env.local
-```
-
-Fill in your API keys in `.env.local`:
-
-```env
-# Google (Gemini & Veo)
-GEMINI_API_KEY=your_google_ai_key
-
-# ElevenLabs (TTS Narration)
-ELEVENLABS_API_KEY=your_elevenlabs_key
-
-# Supabase (Storage & DB)
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-
-# Telegram Bot (Vercel Chat SDK)
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_WEBHOOK_SECRET_TOKEN=your_webhook_secret
-```
-
-### 3. Install & Run Locally
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000` to see the local Remotion preview environment.
-
-### 4. Deploy to Vercel
-
-```bash
-npm i -g vercel
-vercel
-```
-Ensure you add your `.env.local` variables to your Vercel project settings, and register your Vercel deployment URL as the Telegram webhook.
-
----
-
-## Future Roadmap
-
-- **Interactive Editing** — Reply to the bot with "change the second scene to be darker" to trigger targeted re-renders.
-- **Multilingual Support** — Generate the exact same video but with dubbing and translated overlays for 10+ different languages.
-- **Background Music Generation** — Integrate Lyria for dynamic background scores that match the mood of the Gemini script.
-- **Style Presets** — Pass commands like `/style anime` or `/style cinematic` to instantly alter the Veo generation prompts.
+An App Platform spec is included at `.do/app.yaml`. Import the repo via the [DigitalOcean App Platform](https://cloud.digitalocean.com/apps) and fill in the environment variables.
 
 ---
 
@@ -239,8 +111,6 @@ Ensure you add your `.env.local` variables to your Vercel project settings, and 
 
 MIT
 
----
-
 <p align="center">
-  <strong>FlowMotion</strong> &mdash; Built for the <a href="https://cerebralvalley.ai/e/zero-to-agent-sf">Zero to Agent: Vercel x DeepMind Hackathon</a> in San Francisco, March 2026.
+  <strong>FlowMotion</strong> &mdash; Built at the Zero to Agent Hackathon, San Francisco, March 2026.
 </p>

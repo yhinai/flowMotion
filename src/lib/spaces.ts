@@ -94,3 +94,23 @@ export async function deleteFromSpaces(key: string): Promise<void> {
     })
   );
 }
+
+/**
+ * Lightweight health-check: returns the configured bucket and region
+ * without making any network calls. Useful for verifying env vars are set.
+ */
+export function testSpacesConnection(): {
+  configured: boolean;
+  bucket: string | undefined;
+  region: string | undefined;
+  endpoint: string | undefined;
+} {
+  const bucket = process.env.DO_SPACES_BUCKET;
+  const region = process.env.DO_SPACES_REGION;
+  return {
+    configured: isConfigured(),
+    bucket,
+    region,
+    endpoint: region ? `https://${region}.digitaloceanspaces.com` : undefined,
+  };
+}
