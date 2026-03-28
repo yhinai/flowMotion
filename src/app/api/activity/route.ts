@@ -2,66 +2,84 @@
  * GET /api/activity
  *
  * Returns daily video generation counts for the past 365 days.
- * Reads from Supabase storage file listing (jobs/{date}/ prefixes).
- * Falls back to demo data when storage is not configured.
+ * Reads from DigitalOcean Spaces file listing (jobs/ prefix).
+ * Falls back to demo data when Spaces is not configured.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 export interface ActivityDataPoint {
-  date: string; // ISO date string "YYYY-MM-DD"
+  date: string; // "YYYY-MM-DD"
   count: number;
 }
 
 function getDemoData(): ActivityDataPoint[] {
   const data: ActivityDataPoint[] = [];
   const now = new Date();
-
   for (let i = 364; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split("T")[0];
-
-    // Generate realistic-looking sparse activity with recent uptick
     const recency = 1 - i / 364;
     const base = Math.random() < 0.15 + recency * 0.4 ? 1 : 0;
-    const count = base * (1 + Math.floor(Math.random() * 4 * recency));
-
-    data.push({ date: dateStr, count });
+    data.push({ date: dateStr, count: base * (1 + Math.floor(Math.random() * 4 * recency)) });
   }
-
   return data;
 }
 
-export async function GET() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET || "video-assets";
+function isConfigured() {
+  return !!(
+    process.env.DO_SPACES_KEY &&
+    process.env.DO_SPACES_SECRET &&
+    process.env.DO_SPACES_BUCKET &&
+    process.env.DO_SPACES_REGION
+  );
+}
 
-  if (!supabaseUrl || !serviceKey) {
+export async function GET() {
+  if (!isConfigured()) {
     return Response.json(getDemoData());
   }
 
+  const region = process.env.DO_SPACES_REGION!;
+  const bucket = process.env.DO_SPACES_BUCKET!;
+
+  const client = new S3Client({
+    endpoint: `https://${region}.digitaloceanspaces.com`,
+    region: "us-east-1",
+    forcePathStyle: false,
+    credentials: {
+      accessKeyId: process.env.DO_SPACES_KEY!,
+      secretAccessKey: process.env.DO_SPACES_SECRET!,
+    },
+  });
+
   try {
-    const supabase = createClient(supabaseUrl, serviceKey);
-    const { data: files, error } = await supabase.storage
-      .from(bucket)
-      .list("jobs", { limit: 1000, sortBy: { column: "created_at", order: "desc" } });
-
-    if (error || !files) {
-      return Response.json(getDemoData());
-    }
-
-    // Count completions per day from folder names (jobs/{jobId}/...)
     const countsByDate: Record<string, number> = {};
-    for (const file of files) {
-      const created = file.created_at ?? file.updated_at;
-      if (!created) continue;
-      const dateStr = new Date(created).toISOString().split("T")[0];
-      countsByDate[dateStr] = (countsByDate[dateStr] ?? 0) + 1;
-    }
+    let continuationToken: string | undefined;
 
-    // Build full 365-day series
+    do {
+      const res = await client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: "jobs/",
+          MaxKeys: 1000,
+          ContinuationToken: continuationToken,
+        })
+      );
+
+      for (const obj of res.Contents ?? []) {
+        if (!obj.LastModified) continue;
+        const dateStr = obj.LastModified.toISOString().split("T")[0];
+        // Only count mp4 files as completed videos
+        if (obj.Key?.endsWith(".mp4")) {
+          countsByDate[dateStr] = (countsByDate[dateStr] ?? 0) + 1;
+        }
+      }
+
+      continuationToken = res.NextContinuationToken;
+    } while (continuationToken);
+
     const now = new Date();
     const result: ActivityDataPoint[] = [];
     for (let i = 364; i >= 0; i--) {

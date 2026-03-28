@@ -43,16 +43,6 @@ services:
       - key: DO_SPACES_REGION
         scope: RUN_AND_BUILD_TIME
         value: "nyc3"
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        scope: RUN_AND_BUILD_TIME
-        value: ""
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        scope: RUN_AND_BUILD_TIME
-        type: SECRET
-        value: ""
-      - key: SUPABASE_STORAGE_BUCKET
-        scope: RUN_AND_BUILD_TIME
-        value: "video-assets"
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_AND_BUILD_TIME
         type: SECRET

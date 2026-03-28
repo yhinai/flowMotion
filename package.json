@@ -20,7 +20,6 @@
     "@remotion/google-fonts": "^4.0.438",
     "@remotion/player": "^4.0.438",
     "@remotion/renderer": "^4.0.438",
-    "@supabase/supabase-js": "^2.99.3",
     "bullmq": "^5.71.0",
     "chat": "^4.20.2",
     "heat-graph": "^0.0.3",
