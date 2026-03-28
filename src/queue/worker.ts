@@ -2035,6 +2035,104 @@ async function processPathBJob(
 
     switch (config.type) {
       case "text-video": {
+        // Check for repo slides mode
+        if (config.text?.startsWith("__REPO_SLIDES__:")) {
+          const repoUrl = config.text.replace("__REPO_SLIDES__:", "");
+
+          await updateJobPersistent(jobId, {
+            progress: 10,
+            message: "Analyzing GitHub repository...",
+          });
+
+          const { analyzeRepo } = await import("@/lib/github");
+          const ghAnalysis = await analyzeRepo(repoUrl);
+
+          checkCancelled(jobId);
+          await updateJobPersistent(jobId, {
+            progress: 30,
+            message: "Generating slide content with AI...",
+          });
+
+          // Map github.ts RepoAnalysis -> repo-slides.ts RepoAnalysis
+          const repoSlidesAnalysis = {
+            name: ghAnalysis.metadata.name,
+            fullName: `${ghAnalysis.metadata.name}`,
+            description: ghAnalysis.metadata.description,
+            url: repoUrl,
+            stars: ghAnalysis.metadata.stars,
+            forks: 0,
+            openIssues: 0,
+            language: ghAnalysis.metadata.language,
+            topics: ghAnalysis.metadata.topics,
+            readmeContent: ghAnalysis.metadata.readmeContent,
+            ownerAvatarUrl: ghAnalysis.metadata.ownerAvatarUrl,
+            defaultBranch: "main",
+            createdAt: "",
+            updatedAt: "",
+            license: ghAnalysis.stats.license || undefined,
+            languages: ghAnalysis.languages,
+            fileTree: ghAnalysis.fileTree.map((entry) => entry.path),
+            dependencies: {} as Record<string, string>,
+            recentCommits: ghAnalysis.recentCommits.map(
+              (c) => `${c.sha.slice(0, 7)} ${c.message} (${c.author})`
+            ),
+            contributors: ghAnalysis.contributors.map((c) => ({
+              login: c.login,
+              avatarUrl: c.avatarUrl,
+              contributions: c.contributions,
+            })),
+          };
+
+          // Extract dependencies from package.json if available
+          const pkgJson = ghAnalysis.keyFiles["package.json"];
+          if (pkgJson) {
+            try {
+              const pkg = JSON.parse(pkgJson);
+              repoSlidesAnalysis.dependencies = {
+                ...(pkg.dependencies ?? {}),
+                ...(pkg.devDependencies ?? {}),
+              };
+            } catch {
+              // Ignore parse failures
+            }
+          }
+
+          const { generateRepoSlides } = await import("@/lib/repo-slides");
+          const slideshow = await generateRepoSlides(repoSlidesAnalysis);
+
+          checkCancelled(jobId);
+          await updateJobPersistent(jobId, {
+            progress: 50,
+            message: `Rendering ${slideshow.slides.length} slides...`,
+          });
+
+          // Convert slides to text lines for TextVideo composition
+          const lines = slideshow.slides.map((slide) => {
+            if (slide.type === "title") {
+              return `${slide.title}${slide.subtitle ? "\n" + slide.subtitle : ""}`;
+            }
+            if (slide.bullets && slide.bullets.length > 0) {
+              return `${slide.title}\n${slide.bullets.join("\n")}`;
+            }
+            if (slide.stats) {
+              const statLines = Object.entries(slide.stats).map(
+                ([k, v]) => `${k}: ${v}`
+              );
+              return `${slide.title}\n${statLines.join("\n")}`;
+            }
+            return slide.title;
+          });
+
+          // Use TextVideo renderer with the generated lines
+          await renderTextVideo(
+            lines.join("\n"),
+            { aspectRatio: config.aspectRatio, duration: 4, musicUrl },
+            outputPath
+          );
+          break;
+        }
+
+        // Normal text video rendering
         await renderTextVideo(
           config.text ?? "",
           {
