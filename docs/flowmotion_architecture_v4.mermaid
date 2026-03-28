@@ -1,0 +1,352 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#6366f1', 'primaryTextColor': '#fff', 'primaryBorderColor': '#818cf8', 'lineColor': '#a5b4fc', 'secondaryColor': '#1e1b4b', 'tertiaryColor': '#312e81', 'nodeTextColor': '#fff', 'edgeLabelBackground': '#1e1b4b', 'clusterBkg': '#1e1b4b80', 'clusterBorder': '#4f46e5'}}}%%
+
+flowchart TD
+
+    %% ═══════════════════════════════════════════════
+    %% ENTRY POINTS (Web UI + Telegram)
+    %% ═══════════════════════════════════════════════
+
+    subgraph ENTRY ["🚪 Entry Points"]
+        WEB([🌐 Web UI\nassistant-ui])
+        BOT([🤖 Telegram Bot])
+        NEXLA_IN([📡 Nexla Live Data\nAuto-trigger])
+    end
+
+    %% Nexla live-data autonomous path
+    NEXLA_IN --> NEXLA_FEED["📊 Nexla Nexsets\n─────────────────────\n• News headlines (NewsAPI flow)\n• Crypto market moves (CoinGecko)\n• Weather events (Open-Meteo)\n─────────────────────\nPOST dataops-sync.nexla.io\n/sync/{NEXSET_ID}\nAuto-refreshes every 5 min\nPowered by Nexla Express"]
+
+    NEXLA_FEED --> NEXLA_TOPICS["💡 Live Topic Cards\n─────────────────────\n• Click to auto-fill prompt\n• OR autonomous scheduled\n  video generation\n• 'via Nexla' badge shown\n• Zero manual intervention"]
+
+    NEXLA_TOPICS --> WEB_PROMPT
+
+    %% Web UI entry (assistant-ui powered)
+    WEB --> WEB_UI["🖥️ FlowMotion Web UI\n─────────────────────\nassistant-ui primitives:\n• ThreadPrimitive.Root\n• ComposerPrimitive.Input\n• MessagePrimitive.Root\n─────────────────────\nAI Director chat panel\nPOST /api/chat → Gemini stream\n'Ask me to refine your prompt'"]
+
+    WEB_UI --> WEB_PROMPT["✍️ Prompt Input\n─────────────────────\n• Manual text entry\n• YouTube / GitHub URL\n• Nexla topic injection\n• Resolution + scene count\n• Template picker\n• Engine selector"]
+
+    WEB_PROMPT --> WEB_SUBMIT["POST /api/generate\n→ jobId\n→ poll /api/status/{jobId}\n→ SSE /api/ws progress"]
+
+    %% Telegram Bot entry
+    BOT --> CMD{"/start or /create"}
+
+    %% ═══════════════════════════════════════════════
+    %% STEP 1: MODE SELECTION
+    %% ═══════════════════════════════════════════════
+    CMD --> MODE_KB["📋 Inline Keyboard:\nChoose Mode"]
+    MODE_KB --> MODE_NEW["🎬 AI Video Generation\n(Google Veo 3)"]
+    MODE_KB --> MODE_REMOTION["🎞️ Remotion-Only Video\n(Motion Graphics / Templates)"]
+    MODE_KB --> MODE_UPLOAD["📤 Upload & Edit\nExisting Video"]
+
+    %% ═══════════════════════════════════════════════
+    %% PATH A: AI VIDEO GENERATION (Veo 3)
+    %% ═══════════════════════════════════════════════
+
+    MODE_NEW --> Q1["⚙️ Q1: Choose Veo Model\n─────────────────────\n🔹 Veo 3 Standard (best quality, 8s)\n🔹 Veo 3 Fast (quicker, 8s)\n🔹 Veo 3.1 (4K, scene extend,\n   reference images, first+last frame)"]
+
+    Q1 --> Q2["🎨 Q2: Video Style\n─────────────────────\n🔹 Cinematic / Film\n🔹 Anime / Cartoon\n🔹 Realistic / Documentary\n🔹 Abstract / Artistic\n🔹 Social Media / TikTok"]
+
+    Q2 --> Q3["📐 Q3: Aspect Ratio & Resolution\n─────────────────────\n🔹 16:9 Landscape (YouTube)\n🔹 9:16 Portrait (TikTok/Reels)\n🔹 1:1 Square (Instagram)\n─────────────────────\n🔹 720p / 1080p\n🔹 4K (Veo 3.1 only)"]
+
+    Q3 --> Q4["⏱️ Q4: Video Duration\n─────────────────────\n🔹 4 seconds (quick clip)\n🔹 6 seconds (standard)\n🔹 8 seconds (max)"]
+
+    Q4 --> Q5{"🖼️ Q5: Custom First Frame?"}
+    Q5 -->|"Yes - Upload Image"| UPLOAD_FRAME["📎 User uploads reference image\n→ Used as first_frame_image"]
+    Q5 -->|"Yes - Generate with AI"| GEN_FRAME["🤖 Generate with Nano Banana Pro\n→ User describes the opening shot"]
+    Q5 -->|"No"| Q6
+
+    UPLOAD_FRAME --> Q6
+    GEN_FRAME --> NANO_FRAME["🍌 Nano Banana Pro API\ngemini-3-pro-image-preview\n─────────────────────\n• Text-to-image generation\n• Up to 4K resolution\n• ~94% text rendering accuracy\n• Supports 14 reference images"]
+    NANO_FRAME --> Q6
+
+    Q6["✍️ Q6: Enter Video Prompt\n─────────────────────\nManual entry OR\nNexla live topic injection\n─────────────────────\nDescribe the scene in detail.\nInclude quoted dialogue for\nVeo 3 lip-synced speech."]
+
+    Q6 --> Q7{"🔊 Q7: Audio Strategy"}
+    Q7 -->|"Veo 3 Native Audio"| AUDIO_NATIVE["🎙️ Use Veo 3 built-in\nsynchronized audio\n(dialogue + ambience + SFX)"]
+    Q7 -->|"Custom Audio Mix"| AUDIO_CUSTOM["🎛️ Custom audio layers\n→ Continue to audio questions"]
+
+    AUDIO_NATIVE --> SHARED_MUSIC
+    AUDIO_CUSTOM --> SHARED_NARR
+
+    %% ═══════════════════════════════════════════════
+    %% PATH B: REMOTION-ONLY VIDEO
+    %% ═══════════════════════════════════════════════
+    MODE_REMOTION --> RO_TYPE{"🎞️ RQ1: Video Type"}
+
+    RO_TYPE -->|"Motion Graphics"| RO_MOGRAPH["✨ Motion Graphics\n─────────────────────\nAnimated shapes, particles,\ngradients, kinetic typography.\nPure React + CSS animations\nvia interpolate() & spring()"]
+
+    RO_TYPE -->|"Text / Quote Video"| RO_TEXT["📝 Text Video\n─────────────────────\nAnimated quotes, lyrics display,\nword-by-word reveals, poems,\naffirmations, social media posts"]
+
+    RO_TYPE -->|"Image Slideshow"| RO_SLIDE["🖼️ Image Slideshow\n─────────────────────\nKen Burns zoom/pan on images\nCrossfade transitions between\nphotos via TransitionSeries\nwith fade/slide/wipe"]
+
+    RO_TYPE -->|"Data Visualization"| RO_DATA["📊 Data Visualization\n─────────────────────\nAnimated charts & graphs\nBar chart races, line animations,\npie chart builds, counters,\nmap visualizations"]
+
+    RO_TYPE -->|"Explainer / Tutorial"| RO_EXPLAIN["🎓 Explainer Video\n─────────────────────\nStep-by-step reveals,\ndiagram animations,\ncode walkthroughs,\nwhiteboard-style drawing"]
+
+    RO_TYPE -->|"Promo / Ad"| RO_PROMO["📢 Promo / Ad Video\n─────────────────────\nProduct showcases, logos,\ncountdown timers, sale banners,\nevent announcements,\nsocial media stories"]
+
+    RO_MOGRAPH --> RO_SETTINGS
+    RO_TEXT --> RO_TEXT_INPUT
+    RO_SLIDE --> RO_SLIDE_INPUT
+    RO_DATA --> RO_DATA_INPUT
+    RO_EXPLAIN --> RO_EXPLAIN_INPUT
+    RO_PROMO --> RO_PROMO_INPUT
+
+    RO_TEXT_INPUT["✍️ Enter Your Text Content\n─────────────────────\nPaste quote, script, poem,\nor multi-slide text.\n--- = new slide\n**bold** = emphasis\n[pause:2s] = timed pause"]
+    RO_TEXT_INPUT --> RO_SETTINGS
+
+    RO_SLIDE_INPUT["📎 Upload Images (2-50)\n─────────────────────\nOrder = slideshow order.\nPer-image options:\n• Duration per slide (2-10s)\n• Zoom direction (in/out)\n• Pan direction (L→R, R→L)\n• Overlay text per slide"]
+    RO_SLIDE_INPUT --> RO_SETTINGS
+
+    RO_DATA_INPUT["📊 Provide Data\n─────────────────────\n🔹 Upload CSV / JSON file\n🔹 Or paste data inline\n─────────────────────\nChart type:\nBar / Line / Pie / Counter / Map"]
+    RO_DATA_INPUT --> RO_SETTINGS
+
+    RO_EXPLAIN_INPUT["📋 Explainer Content\n─────────────────────\n🔹 Upload script / outline\n🔹 Define steps (1, 2, 3...)\n🔹 Optional: upload diagrams\n🔹 Highlight color scheme"]
+    RO_EXPLAIN_INPUT --> RO_SETTINGS
+
+    RO_PROMO_INPUT["📢 Promo Details\n─────────────────────\n🔹 Upload logo / product images\n🔹 Headline text & tagline\n🔹 CTA text (Shop Now, etc.)\n🔹 Brand colors (hex codes)"]
+    RO_PROMO_INPUT --> RO_SETTINGS
+
+    RO_SETTINGS["⚙️ RQ2: Remotion Video Settings\n━━━━━━━━━━━━━━━━━━━━━━━━\n📐 Aspect Ratio: 16:9 / 9:16 / 1:1 / 4:5\n📏 Resolution: 720p / 1080p / 4K\n⏱️ Duration: Auto / 15s / 30s / 60s\n🎬 FPS: 24 / 30 / 60\n🎨 Theme: Light / Dark / Neon / Minimal"]
+
+    RO_SETTINGS --> RO_STYLE["🎨 RQ3: Animation Style\n─────────────────────\n🔹 Smooth / Snappy / Cinematic\n🔹 Playful / Minimal\n─────────────────────\nTransitions:\nfade / slide / wipe / flip"]
+
+    RO_STYLE --> RO_BG_CHOICE{"🖼️ RQ4: Background?"}
+
+    RO_BG_CHOICE -->|"Solid Color"| RO_BG_COLOR["🎨 Pick color or gradient"]
+    RO_BG_CHOICE -->|"AI Generated"| RO_BG_AI["🍌 Nano Banana Pro\nGenerate background image"]
+    RO_BG_CHOICE -->|"Upload Image"| RO_BG_UPLOAD["📎 Upload background image"]
+    RO_BG_CHOICE -->|"Transparent"| RO_BG_NONE["🔲 Transparent (WebM/MOV + alpha)"]
+
+    RO_BG_COLOR --> RO_IMAGES
+    RO_BG_AI --> RO_IMAGES
+    RO_BG_UPLOAD --> RO_IMAGES
+    RO_BG_NONE --> RO_IMAGES
+
+    RO_IMAGES{"🖼️ RQ5: Generate images\nfor slides/scenes?"}
+    RO_IMAGES -->|"Yes"| RO_IMG_GEN["🍌 Nano Banana Pro\n─────────────────────\nGenerate images per scene:\nIcons, mockups, portraits,\nbackgrounds, infographics"]
+    RO_IMAGES -->|"No / Already uploaded"| SHARED_NARR
+
+    RO_IMG_GEN --> SHARED_NARR
+
+    %% ═══════════════════════════════════════════════
+    %% SHARED AUDIO QUESTIONS (all paths merge here)
+    %% ═══════════════════════════════════════════════
+
+    SHARED_NARR{"🗣️ Add AI Narration?"}
+    SHARED_NARR -->|"Yes"| Q8A["🎤 Narration Settings\n─────────────────────\n🔹 Choose voice (5000+ voices)\n🔹 Or clone your voice\n🔹 Model: Eleven v3 / Multi v2 / Flash\n🔹 Set speed (0.7x - 1.2x)"]
+    SHARED_NARR -->|"No"| SHARED_MUSIC
+
+    Q8A --> Q8B["✍️ Enter Narration Script\n─────────────────────\nSupports emotion tags:\n[whispering] [curious] [excited]\nMax 5000 chars (v3)"]
+    Q8B --> SHARED_MUSIC
+
+    SHARED_MUSIC{"🎵 Add Background Music?"}
+    SHARED_MUSIC -->|"Yes"| Q9A["🎶 Music Settings\n─────────────────────\n🔹 Genre / Mood / Tempo\n🔹 Instruments preference\n─────────────────────\nModel:\n🔹 Lyria 3 Clip (30s, fast)\n🔹 Lyria 3 Pro (up to 3min, vocals)\n🔹 Lyria 2 (instrumental, $0.06)"]
+    SHARED_MUSIC -->|"No"| SHARED_SFX
+
+    Q9A --> SHARED_SFX
+
+    SHARED_SFX{"💥 Add Sound Effects?"}
+    SHARED_SFX -->|"Yes"| Q10A["🔊 SFX Settings\n─────────────────────\n🔹 Describe each SFX in text\n🔹 Duration (0.5s - 30s)\n🔹 Looping? / Prompt influence\n🔹 Timestamp placement"]
+    SHARED_SFX -->|"No"| SHARED_CAPS
+
+    Q10A --> SHARED_CAPS
+
+    SHARED_CAPS{"📝 Add Captions?"}
+    SHARED_CAPS -->|"Yes"| Q11A["💬 Caption Style\n─────────────────────\n🔹 TikTok-style (word highlight)\n🔹 Subtitle bar (bottom)\n🔹 Karaoke-style (color fill)\n🔹 Typewriter animation\n─────────────────────\n🔹 Font / size / color / position"]
+    SHARED_CAPS -->|"No"| SHARED_THUMB
+
+    Q11A --> SHARED_THUMB
+
+    SHARED_THUMB{"🖼️ Generate Thumbnail?"}
+    SHARED_THUMB -->|"Yes"| Q12A["🍌 Nano Banana Pro\nGenerate thumbnail\nfrom video description + style\nJPEG ≤320x320 ≤200KB"]
+    SHARED_THUMB -->|"No"| CONFIRM
+
+    Q12A --> CONFIRM
+
+    %% ═══════════════════════════════════════════════
+    %% CONFIRMATION & PARALLEL GENERATION
+    %% ═══════════════════════════════════════════════
+    CONFIRM["✅ Confirm & Generate\n─────────────────────\nShow summary of all settings\nEstimated time & cost\n[🚀 Generate] [✏️ Edit] [❌ Cancel]"]
+
+    WEB_SUBMIT --> DISPATCH
+    CONFIRM --> DISPATCH
+
+    DISPATCH["⚡ Dispatch Parallel Jobs\nsendChatAction: upload_video\neditMessageText: progress updates"]
+
+    DISPATCH --> GEN_VIDEO["🎬 VEO 3 VIDEO GENERATION\n(AI path only)"]
+    DISPATCH --> GEN_REMOTION_ASSETS["🎞️ REMOTION ASSET PREP\n(Remotion-only path)"]
+    DISPATCH --> GEN_NARR["🗣️ NARRATION GENERATION"]
+    DISPATCH --> GEN_MUSIC["🎵 MUSIC GENERATION"]
+    DISPATCH --> GEN_SFX["💥 SFX GENERATION"]
+    DISPATCH --> GEN_THUMB["🖼️ THUMBNAIL GENERATION"]
+
+    GEN_VIDEO --> VEO_API["Google Vertex AI / Gemini API\nPOST predictLongRunning\n━━━━━━━━━━━━━━━━━━━━━━━━\nModels:\n• veo-3.0-generate-001\n• veo-3.0-fast-generate-001\n• veo-3.1-generate-preview\n─────────────────────\n• Poll operation ID every 10s\n• Output: MP4 @ 24fps\n• Cost: $0.15-$0.40 per second"]
+
+    GEN_REMOTION_ASSETS --> RO_PREP["🎞️ Remotion Composition Builder\n─────────────────────\nText → AnimatedText\nImages → KenBurns\nData → AnimatedChart\nMotion → Particles\nPromo → ProductShowcase\nExplainer → StepReveal"]
+
+    RO_PREP --> RO_SEQUENCE["🔗 Sequence Assembly\nTransitionSeries\n─────────────────────\nAuto-calculate durationInFrames\nfade / slide / wipe / clockWipe"]
+
+    RO_SEQUENCE --> ASSETS_READY
+
+    GEN_NARR --> ELEVEN_TTS["ElevenLabs TTS API\nPOST /v1/text-to-speech\n/{voice_id}/with-timestamps\n─────────────────────\n• Returns audio + word-level\n  timing (startMs, endMs)\n• Time: 2-5 seconds"]
+
+    GEN_MUSIC --> LYRIA{"Model?"}
+    LYRIA -->|"30s Clip"| LYRIA_CLIP["Gemini: lyria-3-clip-preview\n• Genre, mood, tempo\n• MP3 @ 48kHz stereo\n• Time: 10-30 seconds"]
+    LYRIA -->|"Full Track"| LYRIA_PRO["Gemini: lyria-3-pro-preview\n• Up to ~3 min with vocals\n• Full song structure\n• Time: 30-90 seconds"]
+    LYRIA -->|"Instrumental"| LYRIA_V2["Vertex AI: lyria-2\n• Instrumental only\n• 30 second clips\n• $0.06 per generation"]
+
+    GEN_SFX --> ELEVEN_SFX["ElevenLabs SFX API\nPOST /v1/sound-generation\n─────────────────────\n• Text description of sound\n• duration_seconds (0.5-30s)\n• loop: true/false\n• Output: MP3/PCM/Opus"]
+
+    GEN_THUMB --> NANO_THUMB["Nano Banana Pro API\ngemini-3-pro-image-preview\n─────────────────────\n• Text prompt for thumbnail\n• Output: JPEG ≤320x320 ≤200KB"]
+
+    %% ═══════════════════════════════════════════════
+    %% ASSETS CONVERGE
+    %% ═══════════════════════════════════════════════
+    VEO_API --> ASSETS_READY
+    ELEVEN_TTS --> ASSETS_READY
+    LYRIA_CLIP --> ASSETS_READY
+    LYRIA_PRO --> ASSETS_READY
+    LYRIA_V2 --> ASSETS_READY
+    ELEVEN_SFX --> ASSETS_READY
+    NANO_THUMB --> ASSETS_READY
+
+    ASSETS_READY["📦 All Assets Ready\n─────────────────────\nAI path: Veo 3 MP4 + audio\nRemotion path: React components\nShared: Narration + Music +\nSFX + Thumbnail"]
+
+    %% ═══════════════════════════════════════════════
+    %% REMOTION POST-PRODUCTION (unified)
+    %% ═══════════════════════════════════════════════
+    ASSETS_READY --> REMOTION["🎬 REMOTION POST-PRODUCTION\n━━━━━━━━━━━━━━━━━━━━━━━━"]
+
+    REMOTION --> R_BUNDLE["bundle()\n─────────────────────\nBundle Remotion project\nwith all input props & assets"]
+
+    R_BUNDLE --> R_COMPOSE["selectComposition()\n─────────────────────\nResolve composition with\ndynamic duration, fps, dimensions"]
+
+    R_COMPOSE --> R_LAYERS["🎚️ LAYER COMPOSITION\n━━━━━━━━━━━━━━━━━━━━━"]
+
+    R_LAYERS --> R_VID["Layer 1: Visual Base\n─────────────────────\nAI path: OffthreadVideo\nRemotion path: React scenes\n(text, images, charts, motion)"]
+    R_LAYERS --> R_NARR["Layer 2: Narration Audio\nAudio component\nDuck under music during speech"]
+    R_LAYERS --> R_MUSIC["Layer 3: Background Music\nAudio component\nFade in/out at boundaries"]
+    R_LAYERS --> R_SFX_L["Layer 4: Sound Effects\nAudio per SFX at specific frames\nvia Sequence offsets"]
+    R_LAYERS --> R_CAPS["Layer 5: Animated Captions\n─────────────────────\nElevenLabs timestamps →\ncreateTikTokStyleCaptions()\nWord-by-word highlight\nspring() pop animation"]
+    R_LAYERS --> R_TEXT["Layer 6: Text Overlays\nTitle cards / lower thirds\nWatermarks & branding\nCall-to-action end cards"]
+    R_LAYERS --> R_TRANS["Layer 7: Transitions\nTransitionSeries wrapper\nfade / slide / wipe / clockWipe"]
+
+    R_VID --> R_SILENCE
+    R_NARR --> R_SILENCE
+    R_MUSIC --> R_SILENCE
+    R_SFX_L --> R_SILENCE
+    R_CAPS --> R_SILENCE
+    R_TEXT --> R_SILENCE
+    R_TRANS --> R_SILENCE
+
+    R_SILENCE["✂️ SILENCE & FILLER REMOVAL\n━━━━━━━━━━━━━━━━━━━━━━━━\ngetSilentParts()\n• Detect silent segments\n• minDurationInSeconds filter\n─────────────────────\nFiller Word Filter\n• Regex: um|uh|err|like|you know\n• Build skip-list of time ranges\n• Crossfade between cuts"]
+
+    R_SILENCE --> R_RENDER["🔨 RENDER\nrenderMedia()\n━━━━━━━━━━━━━━━━━━━━━━━━\n• codec: h264 (MP4)\n• crf: 18 (high quality)\n• audioBitrate: 320k\n• onProgress → Telegram/SSE updates\n─────────────────────\nOR renderMediaOnLambda()\n• Distributed AWS Lambda\n• ~15s for 60s video"]
+
+    %% ═══════════════════════════════════════════════
+    %% PATH C: UPLOAD & EDIT EXISTING VIDEO
+    %% ═══════════════════════════════════════════════
+    MODE_UPLOAD --> UPL_VID["📎 User Uploads Video\n─────────────────────\nTelegram: getFile() → download\nMax 20MB (standard API)\nMax 2GB (Local Bot API)"]
+
+    UPL_VID --> UPL_Q1{"🛠️ What to do?\n(multi-select)"}
+    UPL_Q1 -->|"Add Captions"| UPL_TRANSCRIBE
+    UPL_Q1 -->|"Remove Silence"| UPL_SILENCE
+    UPL_Q1 -->|"Remove Filler Words"| UPL_FILLER
+    UPL_Q1 -->|"Add Music"| UPL_MUSIC
+    UPL_Q1 -->|"Add Narration"| UPL_NARR
+    UPL_Q1 -->|"Add SFX"| UPL_SFX
+    UPL_Q1 -->|"Add Overlays/Titles"| UPL_OVERLAY
+    UPL_Q1 -->|"Full Edit Suite"| UPL_ALL
+
+    UPL_TRANSCRIBE["🎤 Transcribe with Whisper\n─────────────────────\n@remotion/install-whisper-cpp\nor OpenAI Whisper API\n1. Extract audio\n2. Transcribe → word timestamps\n3. openAiWhisperApiToCaptions()\n4. Caption[] array"]
+
+    UPL_SILENCE["✂️ getSilentParts()\n─────────────────────\nAnalyze uploaded audio\nReturn audibleParts[]\nReconstruct with Sequence"]
+
+    UPL_FILLER["🚫 Filler Word Removal\n─────────────────────\n1. Whisper transcription\n2. Identify um/uh/err/like\n3. Map to time ranges\n4. Skip ranges in Sequence\n5. Crossfade cut points"]
+
+    UPL_OVERLAY["✏️ Overlay Settings\n─────────────────────\n• Title text + position\n• Lower third text\n• Logo watermark upload\n• End card CTA"]
+
+    UPL_MUSIC --> SHARED_MUSIC
+    UPL_NARR --> SHARED_NARR
+    UPL_SFX --> SHARED_SFX
+
+    UPL_ALL --> UPL_TRANSCRIBE
+    UPL_ALL --> UPL_SILENCE
+    UPL_ALL --> UPL_FILLER
+    UPL_ALL --> UPL_OVERLAY
+
+    UPL_TRANSCRIBE --> R_COMPOSE
+    UPL_SILENCE --> R_COMPOSE
+    UPL_FILLER --> R_COMPOSE
+    UPL_OVERLAY --> R_COMPOSE
+
+    %% ═══════════════════════════════════════════════
+    %% STORAGE — DigitalOcean Spaces
+    %% ═══════════════════════════════════════════════
+    R_RENDER --> DO_UPLOAD["☁️ DigitalOcean Spaces\n━━━━━━━━━━━━━━━━━━━━━━━━\nPrimary asset storage + CDN\n─────────────────────\nS3-compatible SDK\nPutObjectCommand → ACL: public-read\nCDN URL: {bucket}.{region}\n.cdn.digitaloceanspaces.com/{key}\n─────────────────────\nFallback: Supabase Storage\n(when DO_SPACES_KEY not set)"]
+
+    %% ═══════════════════════════════════════════════
+    %% DELIVERY
+    %% ═══════════════════════════════════════════════
+    DO_UPLOAD --> SIZE_CHECK{"📏 File Size Check"}
+
+    SIZE_CHECK -->|"≤ 50MB"| SEND_STD["📤 sendVideo()\n─────────────────────\n• supports_streaming: true\n• thumbnail: generated JPEG\n• caption: video description\n• parse_mode: HTML"]
+
+    SIZE_CHECK -->|"> 50MB"| SEND_LOCAL{"Local Bot API\nServer deployed?"}
+
+    SEND_LOCAL -->|"Yes"| SEND_BIG["📤 Local Bot API sendVideo\n─────────────────────\n• Up to 2GB file support\n• file:// URI upload"]
+
+    SEND_LOCAL -->|"No"| SEND_CLOUD["☁️ DigitalOcean Spaces\nCDN download link\n─────────────────────\n• Pre-signed or public URL\n• Send link via bot\n• Or compress to fit 50MB"]
+
+    SEND_STD --> DONE
+    SEND_BIG --> DONE
+    SEND_CLOUD --> DONE
+
+    DONE["✅ DELIVERED\n─────────────────────\nInline Keyboard:\n[🔄 Regenerate]\n[✏️ Edit Settings]\n[📥 Download HD]\n[📤 Share]\n[⭐ Rate Quality]"]
+
+    DONE --> FEEDBACK["📊 User Feedback Loop\n─────────────────────\nStore preferences in DB\nLearn user style over time\nSuggest improvements"]
+
+    FEEDBACK --> CMD
+    FEEDBACK --> WEB_UI
+
+    %% ═══════════════════════════════════════════════
+    %% SPONSOR INTEGRATIONS SUMMARY
+    %% ═══════════════════════════════════════════════
+
+    subgraph SPONSORS ["🏆 Sponsor Integrations"]
+        SP_NEXLA["📡 Nexla / Express\n─────────────────────\nLive data pipelines\nNews + Crypto + Weather\nNexsets → auto video topics\nAutonomous generation trigger\ndataops.nexla.io"]
+        SP_ASSISTANTUI["💬 assistant-ui\n─────────────────────\nWeb UI chat layer\nAssistantRuntimeProvider\nThreadPrimitive / ComposerPrimitive\nStreaming AI Director\nPOST /api/chat → Gemini"]
+        SP_DO["🌊 DigitalOcean Spaces\n─────────────────────\nPrimary video CDN storage\nS3-compatible API\nPublic CDN delivery\nFallback: Supabase"]
+        SP_AUGMENT["🤖 Augment Code\n─────────────────────\nAI coding assistant\nUsed throughout development\nContext-aware completions\nSeamless refactoring"]
+    end
+
+    %% ═══════════════════════════════════════════════
+    %% STYLING
+    %% ═══════════════════════════════════════════════
+    classDef telegram fill:#0088cc,stroke:#006699,color:#fff,stroke-width:2px
+    classDef google fill:#4285f4,stroke:#3367d6,color:#fff,stroke-width:2px
+    classDef elevenlabs fill:#6366f1,stroke:#4f46e5,color:#fff,stroke-width:2px
+    classDef remotion fill:#0ea5e9,stroke:#0284c7,color:#fff,stroke-width:2px
+    classDef nano fill:#eab308,stroke:#ca8a04,color:#000,stroke-width:2px
+    classDef decision fill:#8b5cf6,stroke:#7c3aed,color:#fff,stroke-width:2px
+    classDef process fill:#10b981,stroke:#059669,color:#fff,stroke-width:2px
+    classDef remotion_only fill:#06b6d4,stroke:#0891b2,color:#fff,stroke-width:2px
+    classDef nexla fill:#f59e0b,stroke:#d97706,color:#000,stroke-width:2px
+    classDef assistantui fill:#ec4899,stroke:#db2777,color:#fff,stroke-width:2px
+    classDef digitalocean fill:#0080ff,stroke:#0066cc,color:#fff,stroke-width:2px
+    classDef augment fill:#22c55e,stroke:#16a34a,color:#fff,stroke-width:2px
+    classDef storage fill:#0080ff,stroke:#0066cc,color:#fff,stroke-width:2px
+
+    class BOT,CMD,MODE_KB,CONFIRM,DISPATCH,DONE,FEEDBACK,SEND_STD,SEND_BIG telegram
+    class VEO_API,LYRIA_CLIP,LYRIA_PRO,LYRIA_V2,NANO_FRAME,NANO_THUMB google
+    class ELEVEN_TTS,ELEVEN_SFX elevenlabs
+    class GEN_FRAME,Q12A nano
+    class R_BUNDLE,R_COMPOSE,R_LAYERS,R_VID,R_NARR,R_MUSIC,R_SFX_L,R_CAPS,R_TEXT,R_TRANS,R_SILENCE,R_RENDER,REMOTION,UPL_TRANSCRIBE,UPL_SILENCE,UPL_FILLER,UPL_OVERLAY remotion
+    class Q5,Q7,SHARED_NARR,SHARED_MUSIC,SHARED_SFX,SHARED_CAPS,SHARED_THUMB,MODE_NEW,MODE_UPLOAD,MODE_REMOTION,LYRIA,UPL_Q1,SIZE_CHECK,SEND_LOCAL,RO_TYPE,RO_BG_CHOICE,RO_IMAGES decision
+    class ASSETS_READY,GEN_VIDEO,GEN_NARR,GEN_MUSIC,GEN_SFX,GEN_THUMB,GEN_REMOTION_ASSETS process
+    class RO_MOGRAPH,RO_TEXT,RO_SLIDE,RO_DATA,RO_EXPLAIN,RO_PROMO,RO_SETTINGS,RO_STYLE,RO_PREP,RO_SEQUENCE,RO_TEXT_INPUT,RO_SLIDE_INPUT,RO_DATA_INPUT,RO_EXPLAIN_INPUT,RO_PROMO_INPUT,RO_BG_COLOR,RO_BG_AI,RO_BG_UPLOAD,RO_BG_NONE,RO_IMG_GEN remotion_only
+    class NEXLA_IN,NEXLA_FEED,NEXLA_TOPICS,SP_NEXLA nexla
+    class WEB,WEB_UI,SP_ASSISTANTUI assistantui
+    class DO_UPLOAD,SEND_CLOUD,SP_DO digitalocean
+    class SP_AUGMENT augment
+    class WEB_PROMPT,WEB_SUBMIT process
