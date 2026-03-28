@@ -2,7 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 import { readFile } from "fs/promises";
 import type { CaptionSegment } from "./types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+function getAiClient(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set — cannot transcribe video");
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
 /**
  * Transcribe video audio using Gemini and return timed caption segments.
@@ -27,6 +33,7 @@ export async function transcribeVideo(
         ? "video/quicktime"
         : "video/mp4";
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: [
@@ -73,7 +80,13 @@ Rules:
     return [];
   }
 
-  const parsed: unknown[] = JSON.parse(jsonMatch[0]);
+  let parsed: unknown[];
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    console.warn("Failed to parse transcription JSON from Gemini response");
+    return [];
+  }
 
   // Validate and transform
   const captions: CaptionSegment[] = parsed

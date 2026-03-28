@@ -279,21 +279,25 @@ async function handleCallback(
 
   // Path A: Model selection
   if (data.startsWith("model:") && state.step === "a_model_selection") {
-    const model = data.replace("model:", "") as VeoModel;
+    const validModels: VeoModel[] = ["veo-3", "veo-3.1"];
+    const model = data.replace("model:", "");
+    if (!validModels.includes(model as VeoModel)) return;
     await answerCallbackQuery(callbackQueryId, `Model: ${model}`);
-    setState(chatId, { step: "a_aspect_ratio", model });
+    setState(chatId, { step: "a_aspect_ratio", model: model as VeoModel });
     await sendAspectRatioKeyboard(chatId);
     return;
   }
 
   // Path A: Aspect ratio
   if (data.startsWith("ar:") && state.step === "a_aspect_ratio") {
-    const aspectRatio = data.replace("ar:", "") as AspectRatio;
+    const validAspectRatios: AspectRatio[] = ["16:9", "9:16"];
+    const aspectRatio = data.replace("ar:", "");
+    if (!validAspectRatios.includes(aspectRatio as AspectRatio)) return;
     await answerCallbackQuery(callbackQueryId, `Aspect ratio: ${aspectRatio}`);
     setState(chatId, {
       step: "a_awaiting_prompt",
       model: state.model,
-      aspectRatio,
+      aspectRatio: aspectRatio as AspectRatio,
     });
     await sendMessage(
       chatId,
@@ -304,23 +308,27 @@ async function handleCallback(
 
   // Path B: Type selection
   if (data.startsWith("rtype:") && state.step === "b_type_selection") {
-    const type = data.replace("rtype:", "") as RemotionVideoType;
+    const validTypes: RemotionVideoType[] = ["text-video", "image-slideshow"];
+    const type = data.replace("rtype:", "");
+    if (!validTypes.includes(type as RemotionVideoType)) return;
     await answerCallbackQuery(callbackQueryId, `Type: ${type}`);
-    setState(chatId, { step: "b_aspect_ratio", type });
+    setState(chatId, { step: "b_aspect_ratio", type: type as RemotionVideoType });
     await sendAspectRatioKeyboard(chatId);
     return;
   }
 
   // Path B: Aspect ratio
   if (data.startsWith("ar:") && state.step === "b_aspect_ratio") {
-    const aspectRatio = data.replace("ar:", "") as AspectRatio;
+    const validAR: AspectRatio[] = ["16:9", "9:16"];
+    const aspectRatio = data.replace("ar:", "");
+    if (!validAR.includes(aspectRatio as AspectRatio)) return;
     await answerCallbackQuery(callbackQueryId, `Aspect ratio: ${aspectRatio}`);
 
     if (state.type === "text-video") {
       setState(chatId, {
         step: "b_awaiting_text",
         type: state.type,
-        aspectRatio,
+        aspectRatio: aspectRatio as AspectRatio,
       });
       await sendMessage(
         chatId,
@@ -330,7 +338,7 @@ async function handleCallback(
       setState(chatId, {
         step: "b_collecting_images",
         type: state.type,
-        aspectRatio,
+        aspectRatio: aspectRatio as AspectRatio,
         images: [],
       });
       await sendMessage(
@@ -366,13 +374,18 @@ async function handleCallback(
     });
 
     setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId);
+    pollAndDeliver(chatId, jobId).catch((err) =>
+      console.error("pollAndDeliver failed:", err)
+    );
     return;
   }
 
   // Path C: Edit action selection
   if (data.startsWith("edit:") && state.step === "c_action_selection") {
-    const action = data.replace("edit:", "") as EditAction;
+    const validActions: EditAction[] = ["add-captions", "remove-silence"];
+    const action = data.replace("edit:", "");
+    if (!validActions.includes(action as EditAction)) return;
+
     await answerCallbackQuery(callbackQueryId, `Action: ${action}`);
 
     const actionLabel =
@@ -383,14 +396,16 @@ async function handleCallback(
       pathType: "path-c",
       pathConfig: {
         path: "upload-edit",
-        action,
+        action: action as EditAction,
         videoUrl: state.videoUrl,
         videoLocalPath: state.videoLocalPath,
       },
     });
 
     setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId);
+    pollAndDeliver(chatId, jobId).catch((err) =>
+      console.error("pollAndDeliver failed:", err)
+    );
     return;
   }
 
@@ -428,7 +443,9 @@ async function handleTextMessage(chatId: number, text: string) {
     });
 
     setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId);
+    pollAndDeliver(chatId, jobId).catch((err) =>
+      console.error("pollAndDeliver failed:", err)
+    );
     return;
   }
 
@@ -447,7 +464,9 @@ async function handleTextMessage(chatId: number, text: string) {
     });
 
     setState(chatId, { step: "processing", jobId });
-    pollAndDeliver(chatId, jobId);
+    pollAndDeliver(chatId, jobId).catch((err) =>
+      console.error("pollAndDeliver failed:", err)
+    );
     return;
   }
 

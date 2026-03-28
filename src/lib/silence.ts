@@ -115,10 +115,14 @@ async function getVideoDuration(videoPath: string): Promise<number> {
       output += data;
     });
 
-    ffprobe.on("close", () => {
+    ffprobe.on("close", (code) => {
       const duration = parseFloat(output.trim());
-      if (isNaN(duration)) {
-        reject(new Error("Could not determine video duration"));
+      if (code !== 0 || isNaN(duration)) {
+        reject(
+          new Error(
+            `ffprobe exited with code ${code}: could not determine video duration`
+          )
+        );
       } else {
         resolve(duration);
       }
@@ -193,40 +197,41 @@ export async function removeSilence(
   const tmpDir = `/tmp/silence-removal-${Date.now()}`;
   await mkdir(tmpDir, { recursive: true });
 
-  // Split video into speaking segments
-  const clipPaths: string[] = [];
+  // Split video into speaking segments (parallel for speed)
+  const clipPaths = segments.map((_, i) =>
+    path.join(tmpDir, `clip-${i.toString().padStart(4, "0")}.mp4`)
+  );
 
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    const clipPath = path.join(tmpDir, `clip-${i.toString().padStart(4, "0")}.mp4`);
-    clipPaths.push(clipPath);
+  await Promise.all(
+    segments.map(
+      (segment, i) =>
+        new Promise<void>((resolve, reject) => {
+          const ffmpeg = spawn("ffmpeg", [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            inputPath,
+            "-ss",
+            segment.start.toFixed(3),
+            "-to",
+            segment.end.toFixed(3),
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "make_zero",
+            clipPaths[i],
+          ]);
 
-    await new Promise<void>((resolve, reject) => {
-      const ffmpeg = spawn("ffmpeg", [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        inputPath,
-        "-ss",
-        segment.start.toFixed(3),
-        "-to",
-        segment.end.toFixed(3),
-        "-c",
-        "copy",
-        "-avoid_negative_ts",
-        "make_zero",
-        clipPath,
-      ]);
+          ffmpeg.on("close", (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`ffmpeg split failed for segment ${i} with code ${code}`));
+          });
 
-      ffmpeg.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`ffmpeg split failed for segment ${i} with code ${code}`));
-      });
-
-      ffmpeg.on("error", reject);
-    });
-  }
+          ffmpeg.on("error", reject);
+        })
+    )
+  );
 
   // Write concat file
   const concatFilePath = path.join(tmpDir, "concat.txt");
