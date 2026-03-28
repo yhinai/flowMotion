@@ -89,10 +89,13 @@ export default function Home() {
             <LiveTopics onSelectTopic={(p) => setInjectedPrompt(p)} disabled={isLoading} />
           </div>
 
-          {/* Settings — 3-column grid for symmetry */}
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+          {/* Settings — stacked full-width for proper alignment */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <EngineSelector selected={engine} onChange={setEngine} disabled={isLoading} />
             <TemplatePicker selected={templateId} onChange={setTemplateId} disabled={isLoading} />
+          </div>
+
+          <div className="mt-6">
             <AssetUploader assets={assets} onAssetsChange={setAssets} disabled={isLoading} />
           </div>
         </div>
