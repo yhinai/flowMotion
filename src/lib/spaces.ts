@@ -79,8 +79,8 @@ export async function uploadToSpaces(
     })
   );
 
-  // Return CDN URL (faster delivery than direct endpoint)
-  return `https://${getBucket()}.${getRegion()}.cdn.digitaloceanspaces.com/${key}`;
+  // Return direct Spaces URL (CDN requires separate CDN enablement in DO dashboard)
+  return `https://${getBucket()}.${getRegion()}.digitaloceanspaces.com/${key}`;
 }
 
 /**
