@@ -1518,15 +1518,23 @@ async function processEditorialJob(
 
       for (const ir of imageResults) {
         if (ir.status === "fulfilled") {
+          // Upload to storage so Remotion can access via HTTP URL
+          let assetUrl = ir.value.filePath;
+          try {
+            const assetKey = generateKey(jobId, `${ir.value.id}.png`);
+            assetUrl = await uploadFile(ir.value.filePath, assetKey);
+            console.log(`[Editorial] Uploaded ${ir.value.role} image: ${assetUrl.slice(0, 80)}`);
+          } catch (uploadErr) {
+            console.warn(`[Editorial] Asset upload failed, using local path: ${uploadErr instanceof Error ? uploadErr.message : uploadErr}`);
+          }
           dynamicAssets.push({
             id: ir.value.id,
             role: ir.value.role,
-            src: ir.value.filePath,
+            src: assetUrl,
             semanticTags: ir.value.tags,
             treatment: { radius: 24, saturation: 0.85, opacity: 1 },
             drift: { fromX: 0, toX: 0, fromY: -4, toY: 4, scaleFrom: 1, scaleTo: 1.01 },
           });
-          console.log(`[Editorial] Generated ${ir.value.role} image: ${ir.value.id}`);
         } else {
           console.warn(`[Editorial] Image generation failed for one asset: ${ir.reason}`);
         }
