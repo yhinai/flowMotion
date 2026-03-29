@@ -1291,10 +1291,10 @@ async function processEditorialJob(
                 fileTree.push(relPath);
                 const ext = entry.name.substring(entry.name.lastIndexOf("."));
                 // Collect key source files for analysis (first 50 lines each, max 15 files)
-                if (codeExtensions.has(ext) && keyFiles.length < 15) {
+                if (codeExtensions.has(ext) && keyFiles.length < 25) {
                   const content = readFile(fullPath);
                   if (content.length > 50) {
-                    keyFiles.push({ path: relPath, content: content.split("\n").slice(0, 50).join("\n") });
+                    keyFiles.push({ path: relPath, content: content.split("\n").slice(0, 80).join("\n") });
                   }
                 }
               }
@@ -1322,28 +1322,30 @@ async function processEditorialJob(
         const { GoogleGenAI } = await import("@google/genai");
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
         const analysisPrompt = [
-          `Analyze this GitHub repository and write a compelling, detailed summary that would make an amazing editorial video. Focus on: what the project does, why it matters, key technical innovations, architecture highlights, and who it's for.`,
+          `You are a senior software architect reviewing this GitHub repository. Your analysis will be turned into a 40-second video presentation. Extract CONCRETE TECHNICAL FACTS, not marketing fluff.`,
           "",
           `## Repository: ${ghParsed.owner}/${ghParsed.repo}`,
           "",
           readme ? `## README\n${readme.slice(0, 6000)}` : "",
-          claudeMd ? `## Project Rules\n${claudeMd.slice(0, 3000)}` : "",
+          claudeMd ? `## Project Rules (CLAUDE.md)\n${claudeMd.slice(0, 4000)}` : "",
           "",
-          `## File Structure (${fileTree.length} files)\n${fileTree.slice(0, 60).join("\n")}`,
+          `## File Structure (${fileTree.length} files)\n${fileTree.slice(0, 80).join("\n")}`,
           "",
           deps ? `## Dependencies\n${deps}` : "",
           "",
-          keyFiles.length > 0 ? `## Key Source Files\n${keyFiles.map(f => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")}` : "",
+          keyFiles.length > 0 ? `## Key Source Files (read these carefully)\n${keyFiles.map(f => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")}` : "",
           "",
-          `Write a rich, editorial-quality analysis covering:`,
-          `1. Project vision and purpose (what problem does it solve?)`,
-          `2. Technical architecture (how is it built? what's innovative?)`,
-          `3. Key features and capabilities (what can it do?)`,
-          `4. Technology stack and why those choices matter`,
-          `5. Target audience and impact`,
-          `6. What makes this project special or unique`,
+          `Extract and present these SPECIFIC details:`,
+          `1. WHAT IT DOES: One sentence. What problem does it solve? Be specific.`,
+          `2. HOW IT WORKS: The actual technical pipeline/flow. e.g. "User prompt → Gemini generates script → Veo makes clips → Remotion composes → MP4"`,
+          `3. ARCHITECTURE: What frameworks/libraries/APIs are used and WHY each was chosen`,
+          `4. KEY NUMBERS: File count, language breakdown (e.g. "786K TypeScript"), dependencies count, any performance stats`,
+          `5. STANDOUT FEATURES: 3-5 specific features with technical detail (not vague "AI-powered")`,
+          `6. DATA FLOW: How data moves through the system. Which APIs call which services.`,
+          `7. DEPLOYMENT: How it runs (Next.js app router, Telegram bot, etc.)`,
           "",
-          `Write in a premium editorial voice — confident, specific, vivid. This will be turned into a motion graphics video.`,
+          `Be SPECIFIC and TECHNICAL. Instead of "uses AI for video", say "Gemini 2.5 Flash writes scene scripts with structured JSON output, then Veo 3 generates 8-second clips per scene at 30fps".`,
+          `Include actual file paths, function names, and API endpoints you found in the source code.`,
         ].filter(Boolean).join("\n");
 
         const analysisResponse = await ai.models.generateContent({
@@ -1357,16 +1359,19 @@ async function processEditorialJob(
         enrichedPrompt = [
           `# ${meta.name}`,
           meta.description,
-          `Language: ${meta.language} | Stars: ${meta.stars}`,
+          `Language: ${meta.language} | Stars: ${meta.stars} | ${fileTree.length} files | ${fileTree.filter(f => f.endsWith("/")).length} directories`,
           meta.topics.length > 0 ? `Topics: ${meta.topics.join(", ")}` : "",
           "",
-          "## Deep Analysis",
+          "## Deep Technical Analysis",
           analysis,
           "",
           meta.features.length > 0 ? `## Key Features\n${meta.features.map(f => `- ${f}`).join("\n")}` : "",
           "",
-          `## Architecture\nFile structure: ${fileTree.length} files across ${fileTree.filter(f => f.endsWith("/")).length} directories`,
-          deps ? `Dependencies: ${deps}` : "",
+          `## File Structure\n${fileTree.slice(0, 40).join("\n")}`,
+          "",
+          deps ? `## Dependencies\n${deps}` : "",
+          "",
+          keyFiles.length > 0 ? `## Source Code Samples\n${keyFiles.slice(0, 8).map(f => `### ${f.path}\n${f.content.split("\n").slice(0, 20).join("\n")}`).join("\n\n")}` : "",
         ].filter(Boolean).join("\n");
 
         console.log(`[Editorial] Deep analysis complete for ${ghParsed.owner}/${ghParsed.repo}: ${analysis.length} chars, ${fileTree.length} files scanned`);
@@ -1549,27 +1554,15 @@ async function processEditorialJob(
       message: `Generated ${dynamicAssets.length} custom visuals, compiling beat sheet...`,
     });
 
-    const result = await buildEditorialEngineResult(enrichedPrompt, {
-      brainMode: "rule-based",
-      preset: "editorial-generator",
-      ...(dynamicAssets.length > 0 ? { assets: dynamicAssets } : {}),
-    });
+    // Use LLM-powered compiler: Gemini decides all layout, spacing, timing
+    const { compileWithLLM } = await import("@/editorial/llm-compiler");
+    const llmSpec = await compileWithLLM(enrichedPrompt, dynamicAssets);
 
     checkCancelled(jobId);
     await updateJobPersistent(jobId, {
       progress: 40,
-      message: `Editorial spec compiled: ${result.spec.beats.length} beats, ${result.spec.meta.durationSec.toFixed(1)}s`,
+      message: `LLM compiled: ${llmSpec.beats.length} beats, ${llmSpec.meta.durationSec.toFixed(1)}s`,
     });
-
-    // Log diagnostics
-    const allWarnings = [
-      ...result.diagnostics.plan.warnings,
-      ...result.diagnostics.beatSheet.warnings,
-      ...result.diagnostics.spec.warnings,
-    ];
-    if (allWarnings.length > 0) {
-      console.warn(`[Editorial] Diagnostics: ${allWarnings.join("; ")}`);
-    }
 
     // Stage 2: Render with Remotion (40-90%)
     checkCancelled(jobId);
@@ -1583,9 +1576,11 @@ async function processEditorialJob(
     await mkdir(renderDir, { recursive: true });
     const outputPath = `${renderDir}/${jobId}.mp4`;
 
-    // Downscale to 1080p 30fps by default for faster rendering
-    const { adaptSpecToResolution } = await import("@/editorial/adapter");
-    const renderSpec = adaptSpecToResolution(result.spec, "1080p");
+    // Scale 4K composition to 1080p output
+    const renderSpec = {
+      ...llmSpec,
+      meta: { ...llmSpec.meta, width: 3840, height: 2160 },
+    };
 
     const renderStart = Date.now();
     console.log(`[Editorial] Starting Remotion render for job ${jobId} (${renderSpec.meta.width}x${renderSpec.meta.height} ${renderSpec.meta.fps}fps)...`);
