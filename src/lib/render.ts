@@ -151,6 +151,8 @@ export async function renderEditorialVideo(
     inputProps: { spec },
   });
 
+  // Render at the composition's native resolution (typically 3840x2160)
+  // then scale down to 1080p for delivery
   const finalComposition = {
     ...composition,
     width: spec.meta.width,
@@ -165,10 +167,9 @@ export async function renderEditorialVideo(
     outputLocation: outputPath,
     inputProps: { spec },
     ...getSharedRenderOptions(),
-    // Lower concurrency for higher resolution specs
-    concurrency: spec.meta.width > 1920
-      ? Math.max(1, Math.min(4, Math.floor(os.cpus().length / 4)))
-      : getOptimalConcurrency(),
+    // Scale 4K down to 1080p for reasonable file sizes
+    scale: spec.meta.width > 1920 ? 1920 / spec.meta.width : 1,
+    concurrency: Math.max(1, Math.min(4, Math.floor(os.cpus().length / 4))),
   });
 
   return outputPath;

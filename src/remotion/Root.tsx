@@ -315,13 +315,13 @@ const RemotionRoot: React.FC = () => {
         }}
       />
 
-      {/* Editorial Video — polished beat-driven motion graphics */}
+      {/* Editorial Video — polished beat-driven motion graphics (4K coordinate space) */}
       <Composition
         id="EditorialVideo"
         component={EditorialVideo}
         fps={30}
-        width={1920}
-        height={1080}
+        width={3840}
+        height={2160}
         defaultProps={{
           spec: {
             meta: {
