@@ -1859,30 +1859,35 @@ async function dispatchAutoDecision(
 
   const sharedAudio = buildSharedAudioFromDecision(decision);
 
-  // GitHub repos → always use repo slides (Path B text-video with __REPO_SLIDES__ marker)
-  if (extractedContent.inputType === "github" && extractedContent.metadata?.owner && extractedContent.metadata?.repo) {
-    console.log(`[Bot:Dispatch] → GITHUB REPO SLIDES (overriding AI decision)`);
-    const repoUrl = `https://github.com/${extractedContent.metadata.owner}/${extractedContent.metadata.repo}`;
-    const jobId = createJob(repoUrl, "1080p", 10, {
-      pathType: "path-b",
-      pathConfig: {
-        path: "remotion-only",
-        type: "text-video",
-        aspectRatio: "16:9" as const,
-        text: `__REPO_SLIDES__:${repoUrl}`,
-        sharedAudio,
-      },
+  // Route all content through the editorial pipeline for premium Addx-style videos.
+  // The editorial engine (brain → director → compiler → Remotion) produces beat-driven
+  // staccato typography videos with warm beige backgrounds, orange accents, pill badges,
+  // and rhythmic pacing — far superior to the basic TextVideo composition.
+  {
+    // Build a rich editorial prompt from the extracted content
+    const editorialPrompt = [
+      extractedContent.title,
+      extractedContent.description,
+      extractedContent.rawContent.slice(0, 4000),
+    ].filter(Boolean).join("\n\n");
+
+    console.log(`[Bot:Dispatch] → EDITORIAL PIPELINE (LLM-powered staccato video)`);
+    console.log(`[Bot:Dispatch] Editorial prompt length: ${editorialPrompt.length} chars`);
+
+    // Use the editorial template — the worker's processEditorialJob handles everything:
+    // source analysis → Gemini brain planning → beat sheet → compiler → Remotion render
+    const jobId = createJob(editorialPrompt, "1080p", 1, {
+      templateId: "editorial" as any,
     });
 
     const preJobPayload: PreJobPayload = {
-      prompt: decision.prompt,
+      prompt: editorialPrompt,
       pathType: "path-b",
       pathConfig: {
         path: "remotion-only",
         type: "text-video",
         aspectRatio: "16:9" as const,
-        text: `__REPO_SLIDES__:${repoUrl}`,
-        sharedAudio,
+        text: editorialPrompt,
       },
     };
 
