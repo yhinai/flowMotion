@@ -674,12 +674,8 @@ async function pollAndDeliver(
     if ((messageChanged || progressChanged) && status.message) {
       lastMessage = status.message;
       lastProgress = status.progress;
-      const pct = status.progress ?? 0;
-      const filled = Math.round(pct / 10);
-      const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
-      const elapsed = Math.round((Date.now() - start) / 1000);
-      await sendMessage(chatId, `[${bar}] ${pct}%\n${status.message}\n\u23F1 ${elapsed}s elapsed`);
-      console.log(`[Bot:Poll] job=${jobId.slice(0, 8)} stage=${status.stage} progress=${pct}% msg="${status.message}" elapsed=${elapsed}s`);
+      await sendMessage(chatId, status.message);
+      console.log(`[Bot:Poll] job=${jobId.slice(0, 8)} stage=${status.stage} progress=${status.progress}% msg="${status.message}"`);
     }
 
     if (status.stage === "completed" && status.downloadUrl) {
