@@ -99,31 +99,44 @@ const textPhrase = (
 });
 
 const buildRevealLayout = (layoutHint: NarrativeBeat["layoutHint"]) => {
+  // All layouts ensure text and images occupy separate non-overlapping zones.
+  // Canvas: 3840x2160. Safe margins: 220px horizontal, 160px vertical.
   switch (layoutHint) {
     case "hero-top":
+      // Text top-left, image right half
       return {
-        frameBox: { x: 1030, y: 620, width: 1780, height: 1120 },
-        caption: { x: 940, y: 280, width: 1960, align: "center" as const, tier: "display" as const },
+        frameBox: { x: 1960, y: 400, width: 1600, height: 1200 },
+        caption: { x: 280, y: 500, width: 1500, align: "left" as const, tier: "editorial" as const },
       };
     case "gallery-left":
+      // Image left third, text right two-thirds
       return {
-        frameBox: { x: 520, y: 620, width: 1620, height: 1020 },
-        caption: { x: 2320, y: 760, width: 920, align: "left" as const, tier: "editorial" as const },
+        frameBox: { x: 280, y: 480, width: 1400, height: 1100 },
+        caption: { x: 1880, y: 680, width: 1600, align: "left" as const, tier: "editorial" as const },
       };
     case "gallery-right":
+      // Text left two-thirds, image right third
       return {
-        frameBox: { x: 1700, y: 620, width: 1620, height: 1020 },
-        caption: { x: 600, y: 760, width: 920, align: "left" as const, tier: "editorial" as const },
+        frameBox: { x: 2160, y: 480, width: 1400, height: 1100 },
+        caption: { x: 280, y: 680, width: 1600, align: "left" as const, tier: "editorial" as const },
       };
     case "full-bleed":
+      // Image top half, text below
       return {
-        frameBox: { x: 420, y: 500, width: 3000, height: 1260 },
-        caption: { x: 920, y: 1640, width: 2000, align: "center" as const, tier: "editorial" as const },
+        frameBox: { x: 480, y: 200, width: 2880, height: 1100 },
+        caption: { x: 480, y: 1480, width: 2880, align: "center" as const, tier: "editorial" as const },
+      };
+    case "contrast-split":
+      // No image, text only — centered
+      return {
+        frameBox: { x: 1400, y: 700, width: 1040, height: 800 },
+        caption: { x: 1920, y: 480, width: 2000, align: "center" as const, tier: "editorial" as const },
       };
     default:
+      // Text left, image right (clean two-column)
       return {
-        frameBox: { x: 930, y: 540, width: 1380, height: 990 },
-        caption: { x: 1520, y: 440, width: 900, align: "center" as const, tier: "editorial" as const },
+        frameBox: { x: 2000, y: 500, width: 1500, height: 1100 },
+        caption: { x: 280, y: 700, width: 1500, align: "left" as const, tier: "editorial" as const },
       };
   }
 };
@@ -226,11 +239,11 @@ const compileBeat = (
         fragments: beat.copyFragments,
         granularity: beat.granularity ?? "word",
         durationInFrames,
-        fontSize: beat.granularity === "letter" ? 66 : 74,
+        fontSize: beat.granularity === "letter" ? 56 : 64,
         fontWeight: 520,
         layout: "scatter",
         centerX: 1920,
-        baselineY: 990,
+        baselineY: 1080,
         cueStart: 10,
         cueStep: beat.granularity === "letter" ? 4 : 12,
         holdEnd: Math.max(42, durationInFrames - 24),
@@ -275,7 +288,7 @@ const compileBeat = (
             `${beat.id}-kicker`,
             kickerText,
             layout.caption.x,
-            layout.caption.y - (layout.caption.tier === "display" ? 120 : 72),
+            layout.caption.y - 80,
             "micro",
             4,
             layout.caption.align,
@@ -303,13 +316,13 @@ const compileBeat = (
       motion: transitionMotion(beat.transitionHint),
       assetId: asset.id,
       frameBox: {
-        x: 1360,
-        y: 720,
-        width: 760,
-        height: 980,
+        x: 1520,
+        y: 580,
+        width: 800,
+        height: 1000,
       },
-      leftPhrase: textPhrase(`${beat.id}-left`, beat.copyFragments[0] ?? "others", 680, 1100, "display", 8, "center"),
-      rightPhrase: textPhrase(`${beat.id}-right`, beat.copyFragments[1] ?? "don't", 3060, 1100, "display", 12, "center"),
+      leftPhrase: textPhrase(`${beat.id}-left`, beat.copyFragments[0] ?? "others", 500, 1080, "editorial", 8, "center"),
+      rightPhrase: textPhrase(`${beat.id}-right`, beat.copyFragments[1] ?? "don't", 3340, 1080, "editorial", 12, "center"),
     };
   }
 
@@ -332,10 +345,10 @@ const compileBeat = (
     frameBox:
       index === total - 2 && beat.layoutHint !== "gallery-left" && beat.layoutHint !== "gallery-right"
         ? {
-            x: 420,
-            y: 520,
-            width: 3000,
-            height: 1260,
+            x: 480,
+            y: 200,
+            width: 2880,
+            height: 1100,
           }
         : layout.frameBox,
     kicker: kickerText
@@ -343,7 +356,7 @@ const compileBeat = (
           `${beat.id}-kicker`,
           kickerText,
           layout.caption.x,
-          layout.caption.y - (layout.caption.tier === "display" ? 120 : 72),
+          layout.caption.y - 80,
           "micro",
           6,
           layout.caption.align,

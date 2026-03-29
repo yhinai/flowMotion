@@ -9,13 +9,13 @@ export const referenceTokens = {
     image: 32,
   },
   typography: {
-    display: 176,
-    editorial: 82,
-    micro: 42,
+    display: 120,
+    editorial: 64,
+    micro: 32,
   },
   spacing: {
-    outerX: 220,
-    outerY: 160,
+    outerX: 280,
+    outerY: 200,
   },
 } as const;
 
