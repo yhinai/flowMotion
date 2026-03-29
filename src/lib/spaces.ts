@@ -79,7 +79,7 @@ export async function uploadToSpaces(
     })
   );
 
-  // Return direct Spaces URL (CDN requires separate CDN enablement in DO dashboard)
+  // Return direct Spaces URL (CDN requires enabling in DO dashboard)
   return `https://${getBucket()}.${getRegion()}.digitaloceanspaces.com/${key}`;
 }
 
