@@ -33,19 +33,12 @@ Three paths to create video:
 
 ## Sponsor Integrations
 
-We refused to do basic integrations. Every sponsor tool was pushed to handle unpopular or highly creative features within our autonomous video production pipeline:
-
-### 🌊 DigitalOcean — Complete Cloud Infrastructure
-Instead of basic hosting, we rely heavily on DigitalOcean for both compute and storage. FlowMotion is deployed via **DigitalOcean App Platform** (`.do/app.yaml`) to handle the CPU-intensive Remotion server-side rendering (`renderMedia`). All intermediate and final video assets are securely stored and served via **DigitalOcean Spaces** (S3-compatible object storage with a built-in CDN), ensuring lightning-fast playback for end users.
-
-### 💬 assistant-ui — The AI Director Chat & Heatmap
-Not just a static chat interface. We used `@assistant-ui/react` to build an interactive AI Director. It understands the context of the video being generated, allowing users to interrupt the generation pipeline and tweak prompts for specific scenes mid-flight. We also integrated the `heat-graph` component to visually display the user's video generation activity over time.
-
-### 📊 Nexla — Autonomous Trend Ingestion
-Instead of waiting for user prompts, FlowMotion uses Nexla's live data pipelines to feed real-time trending topics (news, crypto market movements, local weather). We built autonomous "cron-style" agents that watch Nexla Nexsets and automatically trigger video generation when specific thresholds are met, resulting in a zero-click "Data-to-Video" pipeline.
-
-### 💻 Augment Code — AI-Assisted Development
-Building a complex pipeline integrating multiple asynchronous generative APIs (Veo, ElevenLabs, Gemini) and a programmatic video renderer (Remotion) was a massive architectural challenge. We used Augment Code's AI-assisted development tooling throughout the build to quickly scaffold API routes, manage complex TypeScript types across the pipeline, and debug Remotion server-side rendering issues.
+| Sponsor | Integration |
+|---------|-------------|
+| **DigitalOcean** | App Platform deployment (`.do/app.yaml`) + Spaces CDN storage for all video assets |
+| **assistant-ui** | AI Director chat interface (`@assistant-ui/react`) + generation activity heatmap (`heat-graph`) |
+| **Nexla** | Live data pipelines feed trending topics (news, crypto, weather) for autonomous video generation |
+| **Augment Code** | AI-assisted development tooling used throughout the build |
 
 ---
 

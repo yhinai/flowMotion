@@ -1,83 +1,76 @@
 /**
  * GET /api/activity
  *
- * Returns daily video generation counts for the past 30 days.
- * Reads mp4 uploads from DigitalOcean Spaces; falls back to seeded demo data.
+ * Returns daily video generation counts for the past 365 days.
+ * Reads from Supabase storage file listing (jobs/{date}/ prefixes).
+ * Falls back to demo data when storage is not configured.
  */
 
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { createClient } from "@supabase/supabase-js";
 
 export interface ActivityDataPoint {
-  date: string; // "YYYY-MM-DD"
+  date: string; // ISO date string "YYYY-MM-DD"
   count: number;
 }
 
 function getDemoData(): ActivityDataPoint[] {
-  const now = new Date();
   const data: ActivityDataPoint[] = [];
-  for (let day = 29; day >= 0; day--) {
+  const now = new Date();
+
+  for (let i = 364; i >= 0; i--) {
     const d = new Date(now);
-    d.setDate(d.getDate() - day);
+    d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split("T")[0];
-    const count = Math.random() < 0.25 ? 1 + Math.floor(Math.random() * 7) : 0;
+
+    // Generate realistic-looking sparse activity with recent uptick
+    const recency = 1 - i / 364;
+    const base = Math.random() < 0.15 + recency * 0.4 ? 1 : 0;
+    const count = base * (1 + Math.floor(Math.random() * 4 * recency));
+
     data.push({ date: dateStr, count });
   }
+
   return data;
 }
 
-function isConfigured() {
-  return !!(
-    process.env.DO_SPACES_KEY &&
-    process.env.DO_SPACES_SECRET &&
-    process.env.DO_SPACES_BUCKET &&
-    process.env.DO_SPACES_REGION
-  );
-}
-
 export async function GET() {
-  if (!isConfigured()) return Response.json(getDemoData());
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET || "video-assets";
 
-  const region = process.env.DO_SPACES_REGION!;
-  const bucket = process.env.DO_SPACES_BUCKET!;
-  const client = new S3Client({
-    endpoint: `https://${region}.digitaloceanspaces.com`,
-    region: "us-east-1",
-    forcePathStyle: false,
-    credentials: {
-      accessKeyId: process.env.DO_SPACES_KEY!,
-      secretAccessKey: process.env.DO_SPACES_SECRET!,
-    },
-  });
+  if (!supabaseUrl || !serviceKey) {
+    return Response.json(getDemoData());
+  }
 
   try {
-    const countsByDate: Record<string, number> = {};
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-    let continuationToken: string | undefined;
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const { data: files, error } = await supabase.storage
+      .from(bucket)
+      .list("jobs", { limit: 1000, sortBy: { column: "created_at", order: "desc" } });
 
-    do {
-      const res = await client.send(
-        new ListObjectsV2Command({ Bucket: bucket, Prefix: "jobs/", MaxKeys: 1000, ContinuationToken: continuationToken })
-      );
-      for (const obj of res.Contents ?? []) {
-        if (!obj.LastModified || !obj.Key?.endsWith(".mp4") || obj.LastModified < cutoff) continue;
-        const dateStr = obj.LastModified.toISOString().split("T")[0];
-        countsByDate[dateStr] = (countsByDate[dateStr] ?? 0) + 1;
-      }
-      continuationToken = res.NextContinuationToken;
-    } while (continuationToken);
-
-    const now = new Date();
-    const demo = getDemoData();
-    const result: ActivityDataPoint[] = [];
-    for (let day = 29; day >= 0; day--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - day);
-      const dateStr = d.toISOString().split("T")[0];
-      const realCount = countsByDate[dateStr] ?? 0;
-      const demoCount = demo[29 - day]?.count ?? 0;
-      result.push({ date: dateStr, count: realCount + demoCount });
+    if (error || !files) {
+      return Response.json(getDemoData());
     }
+
+    // Count completions per day from folder names (jobs/{jobId}/...)
+    const countsByDate: Record<string, number> = {};
+    for (const file of files) {
+      const created = file.created_at ?? file.updated_at;
+      if (!created) continue;
+      const dateStr = new Date(created).toISOString().split("T")[0];
+      countsByDate[dateStr] = (countsByDate[dateStr] ?? 0) + 1;
+    }
+
+    // Build full 365-day series
+    const now = new Date();
+    const result: ActivityDataPoint[] = [];
+    for (let i = 364; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      result.push({ date: dateStr, count: countsByDate[dateStr] ?? 0 });
+    }
+
     return Response.json(result);
   } catch {
     return Response.json(getDemoData());

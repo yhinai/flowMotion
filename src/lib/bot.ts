@@ -34,7 +34,7 @@ import { makeAutoDecisions, refineAutoDecision } from "./auto-decisions";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 3_000; // Poll every 3s for faster Telegram updates
 const MAX_WAIT_MS = 10 * 60 * 1000;
 const TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024; // 50 MB
 
@@ -104,41 +104,68 @@ async function sendVideo(
   videoUrl: string,
   caption?: string,
 ): Promise<void> {
-  const MAX_RETRIES = 4;
-  const RETRY_DELAY_MS = 5_000;
+  console.log(`[Bot:SendVideo] Attempting to send video to chat=${chatId}`);
+  console.log(`[Bot:SendVideo] URL: ${videoUrl.slice(0, 120)}...`);
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const res = await fetch(`${API_BASE}/sendVideo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          video: videoUrl,
-          caption,
-          supports_streaming: true,
-        }),
-        signal: AbortSignal.timeout(60_000),
-      });
-
-      if (res.ok) return;
-
-      const err = await res.json().catch(() => ({}));
-      console.warn(
-        `sendVideo attempt ${attempt} failed (HTTP ${res.status}):`,
-        err,
-      );
-    } catch (err) {
-      console.warn(`sendVideo attempt ${attempt} failed (network):`, err);
+  // Strategy 1: Try sending URL directly (works for publicly accessible URLs)
+  try {
+    const res = await fetch(`${API_BASE}/sendVideo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        video: videoUrl,
+        caption,
+        supports_streaming: true,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (res.ok) {
+      console.log("[Bot:SendVideo] URL method SUCCESS");
+      return;
     }
-
-    if (attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-    }
+    const err = await res.json().catch(() => ({}));
+    console.warn(`[Bot:SendVideo] URL method failed (${res.status}):`, err?.description);
+  } catch (err) {
+    console.warn("[Bot:SendVideo] URL method failed (network):", err);
   }
 
-  // All retries exhausted — send URL as text fallback
-  console.warn("sendVideo exhausted retries, falling back to text message");
+  // Strategy 2: Download the file and upload directly to Telegram
+  console.log("[Bot:SendVideo] Falling back to direct file upload...");
+  try {
+    const fileRes = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+    if (!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`);
+
+    const arrayBuf = await fileRes.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuf);
+    const sizeMB = (fileBuffer.length / 1024 / 1024).toFixed(1);
+    console.log(`[Bot:SendVideo] Downloaded ${sizeMB}MB, uploading to Telegram...`);
+
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("video", new Blob([fileBuffer], { type: "video/mp4" }), "video.mp4");
+    if (caption) form.append("caption", caption);
+    form.append("supports_streaming", "true");
+
+    const uploadRes = await fetch(`${API_BASE}/sendVideo`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (uploadRes.ok) {
+      console.log("[Bot:SendVideo] Direct upload SUCCESS");
+      return;
+    }
+
+    const uploadErr = await uploadRes.json().catch(() => ({}));
+    console.warn(`[Bot:SendVideo] Direct upload failed (${uploadRes.status}):`, uploadErr?.description);
+  } catch (err) {
+    console.warn("[Bot:SendVideo] Direct upload failed:", err);
+  }
+
+  // Strategy 3: Send URL as text fallback
+  console.warn("[Bot:SendVideo] All methods failed, sending URL as text");
   await sendMessage(chatId, `Your video is ready:\n${videoUrl}`);
 }
 
@@ -626,7 +653,10 @@ async function pollAndDeliver(
   preJobPayload?: PreJobPayload,
 ): Promise<void> {
   const start = Date.now();
-  let lastStage = "";
+  let lastMessage = "";
+  let lastProgress = -1;
+
+  console.log(`[Bot:Poll] Starting poll for job=${jobId.slice(0, 8)} chat=${chatId}`);
 
   while (Date.now() - start < MAX_WAIT_MS) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -637,25 +667,30 @@ async function pollAndDeliver(
     // Keep Telegram showing the bot as active
     await sendChatAction(chatId, "upload_video");
 
-    if (status.stage !== lastStage) {
-      lastStage = status.stage;
-      const stageLabel: Record<string, string> = {
-        generating_script: "\u{270D}\uFE0F Writing script...",
-        generating_clips: "\u{1F3AC} Generating video clips...",
-        uploading_assets: "\u{2601}\uFE0F Uploading assets...",
-        composing_video: "\u{1F3AC} Composing final video...",
-      };
-      if (stageLabel[status.stage]) {
-        await sendMessage(chatId, stageLabel[status.stage]);
-      }
+    // Send real-time updates whenever message or progress changes
+    const progressChanged = status.progress !== lastProgress;
+    const messageChanged = status.message !== lastMessage;
+
+    if ((messageChanged || progressChanged) && status.message) {
+      lastMessage = status.message;
+      lastProgress = status.progress;
+      const pct = status.progress ?? 0;
+      const filled = Math.round(pct / 10);
+      const bar = "\u2588".repeat(filled) + "\u2591".repeat(10 - filled);
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      await sendMessage(chatId, `[${bar}] ${pct}%\n${status.message}\n\u23F1 ${elapsed}s elapsed`);
+      console.log(`[Bot:Poll] job=${jobId.slice(0, 8)} stage=${status.stage} progress=${pct}% msg="${status.message}" elapsed=${elapsed}s`);
     }
 
     if (status.stage === "completed" && status.downloadUrl) {
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      console.log(`[Bot:Poll] job=${jobId.slice(0, 8)} COMPLETED in ${elapsed}s url=${status.downloadUrl.slice(0, 80)}`);
       await deliverVideo(chatId, jobId, status.downloadUrl, preJobPayload);
       return;
     }
 
     if (status.stage === "failed") {
+      console.error(`[Bot:Poll] job=${jobId.slice(0, 8)} FAILED: ${status.error}`);
       await sendMessage(
         chatId,
         `Generation failed: ${status.error ?? "Unknown error"}`,
@@ -665,6 +700,7 @@ async function pollAndDeliver(
     }
   }
 
+  console.warn(`[Bot:Poll] job=${jobId.slice(0, 8)} TIMED OUT after ${MAX_WAIT_MS / 1000}s`);
   await sendMessage(chatId, "Generation timed out. Please try again.");
   resetState(chatId);
 }
@@ -1818,10 +1854,18 @@ async function dispatchAutoDecision(
   decision: AutoDecision,
   extractedContent: ExtractedContent,
 ): Promise<void> {
+  console.log(`[Bot:Dispatch] ========== AUTO DISPATCH ==========`);
+  console.log(`[Bot:Dispatch] chat=${chatId} inputType=${extractedContent.inputType}`);
+  console.log(`[Bot:Dispatch] AI decision: path=${decision.path} model=${decision.model} style=${decision.style} AR=${decision.aspectRatio} dur=${decision.duration}s`);
+  console.log(`[Bot:Dispatch] narration=${decision.narration.needed} music=${decision.music.needed} sfx=${decision.sfx.needed} captions=${decision.captions.needed}`);
+  console.log(`[Bot:Dispatch] prompt="${decision.prompt.slice(0, 100)}..."`);
+  console.log(`[Bot:Dispatch] reasoning="${decision.reasoning.slice(0, 150)}..."`);
+
   const sharedAudio = buildSharedAudioFromDecision(decision);
 
   // GitHub repos → always use repo slides (Path B text-video with __REPO_SLIDES__ marker)
   if (extractedContent.inputType === "github" && extractedContent.metadata?.owner && extractedContent.metadata?.repo) {
+    console.log(`[Bot:Dispatch] → GITHUB REPO SLIDES (overriding AI decision)`);
     const repoUrl = `https://github.com/${extractedContent.metadata.owner}/${extractedContent.metadata.repo}`;
     const jobId = createJob(repoUrl, "1080p", 10, {
       pathType: "path-b",

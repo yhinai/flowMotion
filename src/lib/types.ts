@@ -249,8 +249,8 @@ export type SourceType = 'prompt' | 'youtube' | 'github';
 
 // ─── 3-Path Architecture Types ───────────────────────────────────────────────
 
-/** The three top-level creation paths */
-export type BotPath = 'ai-video' | 'remotion-only' | 'upload-edit';
+/** The three top-level creation paths (+ auto mode) */
+export type BotPath = 'ai-video' | 'remotion-only' | 'upload-edit' | 'auto';
 
 /** Veo model selection for Path A */
 export type VeoModel = 'veo-3' | 'veo-3-fast' | 'veo-3.1';
@@ -398,6 +398,37 @@ export interface PathCConfig {
 
 export type PathConfig = PathAConfig | PathBConfig | PathCConfig;
 
+// ─── Auto Mode Types ────────────────────────────────────────────────────────
+
+/** Input types that Auto Mode can process */
+export type AutoInputType = 'github' | 'youtube' | 'video' | 'text' | 'website';
+
+/** Content extracted from user input in Auto Mode */
+export interface ExtractedContent {
+  readonly inputType: AutoInputType;
+  readonly title: string;
+  readonly description: string;
+  readonly rawContent: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly videoLocalPath?: string; // for uploaded videos
+  readonly videoUrl?: string; // for uploaded videos
+}
+
+/** Autonomous decisions made by AI for video generation */
+export interface AutoDecision {
+  readonly path: 'ai-video' | 'remotion-only' | 'upload-edit';
+  readonly style: VideoStyle;
+  readonly aspectRatio: AspectRatio;
+  readonly duration: VeoDuration;
+  readonly model: VeoModel;
+  readonly narration: { needed: boolean; script: string; voice: string; speed: number; language: string; voiceModel: ElevenVoiceModel };
+  readonly music: { needed: boolean; genre: string; mood: string; volume: number; lyriaModel: LyriaModel };
+  readonly sfx: { needed: boolean; descriptions: string[] };
+  readonly captions: { needed: boolean; style: CaptionStyle };
+  readonly prompt: string; // the generated video prompt
+  readonly reasoning: string; // why these choices were made
+}
+
 // ─── Conversation State Machine (Telegram Bot) ──────────────────────────────
 
 export type ConversationStep =
@@ -436,6 +467,9 @@ export type ConversationStep =
   | { step: 'c_overlay_input'; videoUrl: string; videoLocalPath: string; selectedActions: EditAction[] }
   | { step: 'c_narration_input'; videoUrl: string; videoLocalPath: string; selectedActions: EditAction[] }
   | { step: 'c_confirm'; videoUrl: string; videoLocalPath: string; selectedActions: EditAction[]; overlayConfig?: OverlayConfig; narrationScript?: string }
+  // ── Auto mode states ──
+  | { step: 'auto_awaiting_input' }
+  | { step: 'auto_processing'; extractedContent: ExtractedContent }
   // ── Shared audio questions (all paths merge) ──
   | { step: 'shared_narration'; preJobPayload: PreJobPayload }
   | { step: 'shared_narration_voice'; preJobPayload: PreJobPayload }
@@ -450,7 +484,7 @@ export type ConversationStep =
   | { step: 'shared_thumbnail'; preJobPayload: PreJobPayload; narration?: NarrationConfig; music?: MusicGenConfig; sfx?: SfxGenConfig; captionStyle?: CaptionStyle }
   // ── Processing & delivery ──
   | { step: 'processing'; jobId: string }
-  | { step: 'post_delivery'; jobId: string; downloadUrl: string; preJobPayload?: PreJobPayload }
+  | { step: 'post_delivery'; jobId: string; downloadUrl: string; preJobPayload?: PreJobPayload; autoReasoning?: string; lastDecision?: AutoDecision; lastExtractedContent?: ExtractedContent }
   | { step: 'rating'; jobId: string };
 
 /** Intermediate content payload for Path B before settings */
