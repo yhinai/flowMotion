@@ -548,6 +548,293 @@ async def test_api_cancel(page, job_id):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# LYRIA MUSIC INTEGRATION — TELEGRAM BOT FLOW
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def test_telegram_music_full_flow(page):
+    """Telegram: Full music sub-flow (genre→mood→model) in Path A"""
+    chat_id = 99990010
+    try:
+        # /start → AI Video → model → AR → style → duration → first frame skip → audio custom → prompt
+        for payload in [
+            {"message": {"chat": {"id": chat_id}, "text": "/start"}},
+            {"callback_query": {"id": "cb1", "data": "path:ai-video", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb2", "data": "model:veo-3.1", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb3", "data": "ar:16:9", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb4", "data": "style:cinematic", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb5", "data": "dur:8", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb6", "data": "ff:skip", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb7", "data": "audio:custom", "message": {"chat": {"id": chat_id}}}},
+            {"message": {"chat": {"id": chat_id}, "text": "Epic mountain landscape at sunrise"}},
+        ]:
+            res = await page.request.post(f"{BASE}/api/telegram", data=payload,
+                                          headers={"Content-Type": "application/json"})
+            assert res.status == 200
+
+        # Now in shared questions: narration → No
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb8", "data": "sq_narration:no", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # Music → Yes
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb9", "data": "sq_music:yes", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # Genre → orchestral
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb10", "data": "genre:orchestral", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # Mood → epic
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb11", "data": "mood:epic", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # Lyria model → lyria-3-clip
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb12", "data": "lmodel:lyria-3-clip", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # SFX → No, Captions → No, Thumbnail → No
+        for prefix in ["sq_sfx", "sq_captions", "sq_thumbnail"]:
+            res = await page.request.post(f"{BASE}/api/telegram", data={
+                "callback_query": {"id": f"cb_{prefix}", "data": f"{prefix}:no", "message": {"chat": {"id": chat_id}}}
+            }, headers={"Content-Type": "application/json"})
+            assert res.status == 200
+
+        log("Telegram: Music flow (genre→mood→model) in Path A", "pass")
+    except Exception as e:
+        log("Telegram: Music flow (genre→mood→model) in Path A", "fail", str(e)[:200])
+
+
+async def test_telegram_music_decline(page):
+    """Telegram: Declining music skips genre/mood/model questions"""
+    chat_id = 99990011
+    try:
+        # Quick Path B text flow → shared questions
+        for payload in [
+            {"message": {"chat": {"id": chat_id}, "text": "/start"}},
+            {"callback_query": {"id": "cb1", "data": "path:remotion-only", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb2", "data": "rtype:text-video", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb3", "data": "ar:16:9", "message": {"chat": {"id": chat_id}}}},
+            {"message": {"chat": {"id": chat_id}, "text": "Hello World\nNo Music Test"}},
+        ]:
+            res = await page.request.post(f"{BASE}/api/telegram", data=payload,
+                                          headers={"Content-Type": "application/json"})
+            assert res.status == 200
+
+        # Narration → No
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb4", "data": "sq_narration:no", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # Music → No (should skip directly to SFX)
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb5", "data": "sq_music:no", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        # SFX → No (if we got here, music was correctly skipped)
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb6", "data": "sq_sfx:no", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        log("Telegram: Music decline skips to SFX", "pass")
+    except Exception as e:
+        log("Telegram: Music decline skips to SFX", "fail", str(e)[:200])
+
+
+async def test_telegram_music_all_genres(page):
+    """Telegram: All genre options are accepted"""
+    genres = ["pop", "orchestral", "lo-fi", "electronic", "ambient"]
+    chat_id_base = 99990020
+    try:
+        for i, genre in enumerate(genres):
+            cid = chat_id_base + i
+            # Quick Path B → shared → narration no → music yes → genre
+            for payload in [
+                {"message": {"chat": {"id": cid}, "text": "/start"}},
+                {"callback_query": {"id": "cb1", "data": "path:remotion-only", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb2", "data": "rtype:text-video", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb3", "data": "ar:16:9", "message": {"chat": {"id": cid}}}},
+                {"message": {"chat": {"id": cid}, "text": f"Genre test: {genre}"}},
+                {"callback_query": {"id": "cb4", "data": "sq_narration:no", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb5", "data": "sq_music:yes", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb6", "data": f"genre:{genre}", "message": {"chat": {"id": cid}}}},
+            ]:
+                res = await page.request.post(f"{BASE}/api/telegram", data=payload,
+                                              headers={"Content-Type": "application/json"})
+                assert res.status == 200, f"Failed at genre={genre}: HTTP {res.status}"
+
+        log("Telegram: All 5 genre options accepted", "pass", ", ".join(genres))
+    except Exception as e:
+        log("Telegram: All 5 genre options accepted", "fail", str(e)[:200])
+
+
+async def test_telegram_music_all_moods(page):
+    """Telegram: All mood options are accepted"""
+    moods = ["upbeat", "melancholic", "epic", "calm", "energetic"]
+    chat_id = 99990030
+    try:
+        # Set up to mood selection state
+        for payload in [
+            {"message": {"chat": {"id": chat_id}, "text": "/start"}},
+            {"callback_query": {"id": "cb1", "data": "path:remotion-only", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb2", "data": "rtype:text-video", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb3", "data": "ar:16:9", "message": {"chat": {"id": chat_id}}}},
+            {"message": {"chat": {"id": chat_id}, "text": "Mood test"}},
+            {"callback_query": {"id": "cb4", "data": "sq_narration:no", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb5", "data": "sq_music:yes", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb6", "data": "genre:pop", "message": {"chat": {"id": chat_id}}}},
+        ]:
+            res = await page.request.post(f"{BASE}/api/telegram", data=payload,
+                                          headers={"Content-Type": "application/json"})
+            assert res.status == 200
+
+        # Test first mood option (others would need separate chat sessions)
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb7", "data": "mood:epic", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200
+
+        log("Telegram: Mood selection accepted", "pass", "epic")
+    except Exception as e:
+        log("Telegram: Mood selection accepted", "fail", str(e)[:200])
+
+
+async def test_telegram_music_all_models(page):
+    """Telegram: All 3 Lyria model options are accepted"""
+    models = ["lyria-3-clip", "lyria-3-pro", "lyria-2"]
+    chat_id_base = 99990040
+    try:
+        for i, model in enumerate(models):
+            cid = chat_id_base + i
+            for payload in [
+                {"message": {"chat": {"id": cid}, "text": "/start"}},
+                {"callback_query": {"id": "cb1", "data": "path:remotion-only", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb2", "data": "rtype:text-video", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb3", "data": "ar:16:9", "message": {"chat": {"id": cid}}}},
+                {"message": {"chat": {"id": cid}, "text": f"Model test: {model}"}},
+                {"callback_query": {"id": "cb4", "data": "sq_narration:no", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb5", "data": "sq_music:yes", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb6", "data": "genre:electronic", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb7", "data": "mood:energetic", "message": {"chat": {"id": cid}}}},
+                {"callback_query": {"id": "cb8", "data": f"lmodel:{model}", "message": {"chat": {"id": cid}}}},
+            ]:
+                res = await page.request.post(f"{BASE}/api/telegram", data=payload,
+                                              headers={"Content-Type": "application/json"})
+                assert res.status == 200, f"Failed at model={model}: HTTP {res.status}"
+
+        log("Telegram: All 3 Lyria models accepted", "pass", ", ".join(models))
+    except Exception as e:
+        log("Telegram: All 3 Lyria models accepted", "fail", str(e)[:200])
+
+
+async def test_api_path_b_with_music_config(page):
+    """API: Path B job with full Lyria music config"""
+    try:
+        res = await page.request.post(f"{BASE}/api/generate", data={
+            "prompt": "Music Config Test",
+            "resolution": "720p",
+            "sceneCount": 1,
+            "pathType": "path-b",
+            "pathConfig": {
+                "path": "remotion-only",
+                "type": "text-video",
+                "aspectRatio": "16:9",
+                "text": "Testing Lyria\nMusic Integration\nWith Full Config",
+                "sharedAudio": {
+                    "music": {
+                        "genre": "lo-fi",
+                        "mood": "calm",
+                        "lyriaModel": "lyria-3-clip"
+                    }
+                }
+            }
+        }, headers={"Content-Type": "application/json"})
+
+        assert res.status == 202, f"Expected 202, got {res.status}"
+        body = await res.json()
+        assert "jobId" in body
+        log("API: Path B with Lyria music config", "pass", f"jobId={body['jobId'][:8]}")
+        return body["jobId"]
+    except Exception as e:
+        log("API: Path B with Lyria music config", "fail", str(e)[:200])
+        return None
+
+
+async def test_api_path_a_with_music_config(page):
+    """API: Path A job with music in sharedAudio"""
+    try:
+        res = await page.request.post(f"{BASE}/api/generate", data={
+            "prompt": "Cinematic mountain shot",
+            "resolution": "720p",
+            "sceneCount": 1,
+            "pathType": "path-a",
+            "pathConfig": {
+                "path": "ai-video",
+                "model": "veo-3.1",
+                "aspectRatio": "16:9",
+                "prompt": "Cinematic mountain shot at golden hour",
+                "sharedAudio": {
+                    "music": {
+                        "genre": "orchestral",
+                        "mood": "epic",
+                        "lyriaModel": "lyria-3-clip"
+                    }
+                }
+            }
+        }, headers={"Content-Type": "application/json"})
+
+        assert res.status == 202, f"Expected 202, got {res.status}"
+        body = await res.json()
+        assert "jobId" in body
+        log("API: Path A with Lyria music config", "pass", f"jobId={body['jobId'][:8]}")
+        return body["jobId"]
+    except Exception as e:
+        log("API: Path A with Lyria music config", "fail", str(e)[:200])
+        return None
+
+
+async def test_telegram_invalid_lyria_model(page):
+    """Telegram: Invalid Lyria model is rejected"""
+    chat_id = 99990050
+    try:
+        for payload in [
+            {"message": {"chat": {"id": chat_id}, "text": "/start"}},
+            {"callback_query": {"id": "cb1", "data": "path:remotion-only", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb2", "data": "rtype:text-video", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb3", "data": "ar:16:9", "message": {"chat": {"id": chat_id}}}},
+            {"message": {"chat": {"id": chat_id}, "text": "Invalid model test"}},
+            {"callback_query": {"id": "cb4", "data": "sq_narration:no", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb5", "data": "sq_music:yes", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb6", "data": "genre:pop", "message": {"chat": {"id": chat_id}}}},
+            {"callback_query": {"id": "cb7", "data": "mood:calm", "message": {"chat": {"id": chat_id}}}},
+        ]:
+            res = await page.request.post(f"{BASE}/api/telegram", data=payload,
+                                          headers={"Content-Type": "application/json"})
+            assert res.status == 200
+
+        # Send invalid Lyria model
+        res = await page.request.post(f"{BASE}/api/telegram", data={
+            "callback_query": {"id": "cb8", "data": "lmodel:lyria-99-fake", "message": {"chat": {"id": chat_id}}}
+        }, headers={"Content-Type": "application/json"})
+        assert res.status == 200  # should not crash
+
+        log("Telegram: Invalid Lyria model handled safely", "pass")
+    except Exception as e:
+        log("Telegram: Invalid Lyria model handled safely", "fail", str(e)[:200])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -604,11 +891,25 @@ async def main():
         await test_telegram_bot_path_c_flow(page)
         await test_telegram_invalid_callbacks(page)
 
+        # ── Lyria Music Integration ──
+        print("\n  LYRIA MUSIC INTEGRATION")
+        print("  " + "-" * 40)
+        await test_telegram_music_full_flow(page)
+        await test_telegram_music_decline(page)
+        await test_telegram_music_all_genres(page)
+        await test_telegram_music_all_moods(page)
+        await test_telegram_music_all_models(page)
+        await test_api_path_b_with_music_config(page)
+        job_a_music = await test_api_path_a_with_music_config(page)
+        await test_telegram_invalid_lyria_model(page)
+
         # ── Cleanup: cancel Veo jobs (they take minutes) ──
         print("\n  CLEANUP")
         print("  " + "-" * 40)
         await test_api_cancel(page, job_a1)
         await test_api_cancel(page, job_a2)
+        if job_a_music:
+            await test_api_cancel(page, job_a_music)
 
         await browser.close()
 

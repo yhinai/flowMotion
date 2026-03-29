@@ -8,6 +8,7 @@ import EngineSelector from "@/components/EngineSelector";
 import AssetUploader from "@/components/AssetUploader";
 import Navbar from "@/components/Navbar";
 import LiveTopics from "@/components/LiveTopics";
+import ActivityHeatmap from "@/components/ActivityHeatmap";
 import type { TemplateIdOrCustom, GenerationEngine } from "@/lib/types";
 
 export default function Home() {
@@ -168,6 +169,13 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Activity Heatmap */}
+      <section className="relative px-6 pb-12 pt-4">
+        <div className="mx-auto max-w-3xl">
+          <ActivityHeatmap />
+        </div>
+      </section>
 
       {/* How It Works section */}
       <section className="relative px-6 pb-28 pt-12">

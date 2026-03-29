@@ -37,6 +37,7 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
   const [nexlaConnected, setNexlaConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<string | null>(null);
+  const [autoGenerating, setAutoGenerating] = useState(false);
 
   const fetchTopics = useCallback(async () => {
     try {
@@ -50,6 +51,22 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
       // silently ignore — this panel is non-critical
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const handleAutoGenerate = useCallback(async () => {
+    setAutoGenerating(true);
+    try {
+      const res = await fetch("/api/live-topics", { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setAutoGenerating(false);
     }
   }, []);
 
@@ -75,16 +92,33 @@ export default function LiveTopics({ onSelectTopic, disabled }: LiveTopicsProps)
             {nexlaConnected ? "via Nexla" : "live data"}
           </span>
         </div>
-        <button
-          onClick={fetchTopics}
-          disabled={loading || disabled}
-          className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-30"
-          title="Refresh topics"
-        >
-          <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAutoGenerate}
+            disabled={loading || disabled || autoGenerating || topics.length === 0}
+            className="flex items-center gap-1 text-[10px] font-medium text-amber-400/70 hover:text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/20 rounded-full px-2 py-0.5 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Auto-generate video from top topic"
+          >
+            {autoGenerating ? (
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            ) : (
+              <span>&#9889;</span>
+            )}
+            Auto-Generate
+          </button>
+          <button
+            onClick={fetchTopics}
+            disabled={loading || disabled}
+            className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-30"
+            title="Refresh topics"
+          >
+            <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Topics grid */}

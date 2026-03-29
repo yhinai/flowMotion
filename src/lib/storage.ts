@@ -54,11 +54,19 @@ export async function uploadFile(
   localPath: string,
   key: string
 ): Promise<string> {
+  const { stat } = await import("fs/promises");
+  const fileSize = await stat(localPath).then(s => (s.size / 1024 / 1024).toFixed(1)).catch(() => "?");
+  console.log(`[Storage] Uploading ${localPath} (${fileSize}MB) → key=${key}`);
+
   // Prefer DigitalOcean Spaces when configured — faster CDN delivery
   if (spacesEnabled()) {
-    return uploadToSpaces(localPath, key);
+    console.log("[Storage] Using DigitalOcean Spaces");
+    const url = await uploadToSpaces(localPath, key);
+    console.log(`[Storage] Upload SUCCESS → ${url.slice(0, 100)}`);
+    return url;
   }
 
+  console.log(`[Storage] Using Supabase bucket=${getBucketName()}`);
   const ext = path.extname(localPath).toLowerCase();
   const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
@@ -72,10 +80,13 @@ export async function uploadFile(
     });
 
   if (error) {
+    console.error(`[Storage] Supabase upload FAILED: ${error.message}`);
     throw new Error(`Failed to upload file: ${error.message}`);
   }
 
-  return getPublicUrl(key);
+  const url = getPublicUrl(key);
+  console.log(`[Storage] Upload SUCCESS → ${url.slice(0, 100)}`);
+  return url;
 }
 
 export async function deleteFile(key: string): Promise<void> {

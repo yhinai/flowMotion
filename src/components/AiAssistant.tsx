@@ -9,7 +9,7 @@ import {
   MessagePartPrimitive,
   type ChatModelAdapter,
 } from "@assistant-ui/react";
-import { useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const FlowMotionAdapter: ChatModelAdapter = {
   async *run({ messages, abortSignal }) {
@@ -47,8 +47,35 @@ const FlowMotionAdapter: ChatModelAdapter = {
   },
 };
 
+const STARTER_PROMPTS = [
+  "Write me a cinematic product launch prompt",
+  "What template works best for TikTok ads?",
+  "Make my prompt more dramatic and emotional",
+  "Suggest a 3-scene structure for an explainer",
+];
+
 function ChatThread() {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleSuggestionClick = useCallback((text: string) => {
+    setPendingSuggestion(text);
+  }, []);
+
+  useEffect(() => {
+    if (pendingSuggestion && composerInputRef.current) {
+      const input = composerInputRef.current;
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value"
+      )?.set;
+      nativeInputValueSetter?.call(input, pendingSuggestion);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+      setPendingSuggestion(null);
+    }
+  }, [pendingSuggestion]);
 
   return (
     <ThreadPrimitive.Root className="flex flex-col h-full">
@@ -68,6 +95,17 @@ function ChatThread() {
               <p className="text-sm font-medium text-white/70">AI Director</p>
               <p className="text-xs text-white/40 mt-1">Ask me to refine your prompt, pick a template, or suggest a visual style.</p>
             </div>
+            <div className="grid grid-cols-1 gap-1.5 w-full mt-2">
+              {STARTER_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => handleSuggestionClick(prompt)}
+                  className="text-left text-xs text-white/50 hover:text-white/80 bg-white/5 hover:bg-white/8 border border-white/8 hover:border-white/15 rounded-lg px-3 py-2 transition-all"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </div>
         </ThreadPrimitive.Empty>
 
@@ -84,6 +122,7 @@ function ChatThread() {
       <ComposerPrimitive.Root className="p-3 border-t border-white/10">
         <div className="flex items-end gap-2">
           <ComposerPrimitive.Input
+            ref={composerInputRef}
             placeholder="Ask the AI director…"
             className="flex-1 bg-white/5 text-white placeholder-white/30 text-sm px-3 py-2 rounded-xl border border-white/10 outline-none focus:border-white/25 resize-none min-h-[38px] max-h-[120px]"
             autoFocus={false}

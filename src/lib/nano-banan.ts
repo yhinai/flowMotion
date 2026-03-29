@@ -83,6 +83,35 @@ function buildPlaceholderSvg(title: string, prompt: string): string {
   `.trim();
 }
 
+function buildPlaceholderSvgWithSize(
+  title: string,
+  prompt: string,
+  width: number,
+  height: number
+): string {
+  const safeTitle = escapeXml(title.replaceAll("-", " "));
+  const safePrompt = escapeXml(prompt.slice(0, 120));
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <defs>
+        <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#111827" />
+          <stop offset="50%" stop-color="#7c3aed" />
+          <stop offset="100%" stop-color="#0f172a" />
+        </linearGradient>
+      </defs>
+      <rect width="${width}" height="${height}" fill="url(#bg)" />
+      <text x="${width / 2}" y="${height * 0.4}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(width / 12, 64)}" font-family="Arial, sans-serif" font-weight="700">
+        ${safeTitle}
+      </text>
+      <text x="${width / 2}" y="${height * 0.6}" text-anchor="middle" fill="#dbeafe" font-size="${Math.min(width / 20, 28)}" font-family="Arial, sans-serif">
+        ${safePrompt}
+      </text>
+    </svg>
+  `.trim();
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -90,6 +119,25 @@ function escapeXml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+}
+
+/** Compute pixel dimensions from an aspect ratio string */
+function aspectRatioToDimensions(
+  aspectRatio: string,
+  maxDimension: number
+): { width: number; height: number } {
+  const parts = aspectRatio.split(":").map(Number);
+  const wRatio = parts[0] ?? 16;
+  const hRatio = parts[1] ?? 9;
+
+  if (wRatio >= hRatio) {
+    const width = maxDimension;
+    const height = Math.round((hRatio / wRatio) * maxDimension);
+    return { width, height };
+  }
+  const height = maxDimension;
+  const width = Math.round((wRatio / hRatio) * maxDimension);
+  return { width, height };
 }
 
 export async function generateKeyframe(scene: Scene): Promise<string> {
@@ -117,6 +165,93 @@ export async function generateTitleCard(
 
   const filePath = await generateAndSaveImage(prompt, "title-card.png");
   console.log(`Title card saved to ${filePath}`);
+  return filePath;
+}
+
+/**
+ * Generate a thumbnail image (320x320 max for Telegram).
+ */
+export async function generateThumbnail(
+  description: string,
+  aspectRatio: string
+): Promise<string> {
+  const { width, height } = aspectRatioToDimensions(aspectRatio, 320);
+
+  const prompt = [
+    `Generate a compelling thumbnail image.`,
+    `Description: ${description}`,
+    `Style: eye-catching, vibrant colors, clear focal point, suitable for video thumbnails.`,
+    `Dimensions: ${width}x${height} pixels.`,
+  ].join("\n");
+
+  if (isStubMode()) {
+    await ensureOutputDir();
+    const filePath = path.join(OUTPUT_DIR, `thumbnail-${Date.now()}.svg`);
+    const svg = buildPlaceholderSvgWithSize("Thumbnail", description, width, height);
+    await writeFile(filePath, svg, "utf8");
+    return filePath;
+  }
+
+  const filePath = await generateAndSaveImage(prompt, `thumbnail-${Date.now()}.png`);
+  console.log(`Thumbnail saved to ${filePath}`);
+  return filePath;
+}
+
+/**
+ * Generate a first frame image for Veo video generation.
+ */
+export async function generateFirstFrame(
+  description: string,
+  aspectRatio: string
+): Promise<string> {
+  const { width, height } = aspectRatioToDimensions(aspectRatio, 1920);
+
+  const prompt = [
+    `Generate a high-quality first frame image for an AI video.`,
+    `Scene description: ${description}`,
+    `Style: photorealistic, cinematic composition, high detail.`,
+    `This image will be used as the starting frame for video generation.`,
+    `Dimensions: ${width}x${height} pixels.`,
+  ].join("\n");
+
+  if (isStubMode()) {
+    await ensureOutputDir();
+    const filePath = path.join(OUTPUT_DIR, `first-frame-${Date.now()}.svg`);
+    const svg = buildPlaceholderSvgWithSize("First Frame", description, width, height);
+    await writeFile(filePath, svg, "utf8");
+    return filePath;
+  }
+
+  const filePath = await generateAndSaveImage(prompt, `first-frame-${Date.now()}.png`);
+  console.log(`First frame saved to ${filePath}`);
+  return filePath;
+}
+
+/**
+ * Generate a background image for Remotion compositions.
+ */
+export async function generateBackgroundImage(
+  description: string,
+  width: number,
+  height: number
+): Promise<string> {
+  const prompt = [
+    `Generate a background image for a video composition.`,
+    `Description: ${description}`,
+    `Style: suitable as a background — not too busy, good for text overlays, professional.`,
+    `Dimensions: ${width}x${height} pixels.`,
+  ].join("\n");
+
+  if (isStubMode()) {
+    await ensureOutputDir();
+    const filePath = path.join(OUTPUT_DIR, `background-${Date.now()}.svg`);
+    const svg = buildPlaceholderSvgWithSize("Background", description, width, height);
+    await writeFile(filePath, svg, "utf8");
+    return filePath;
+  }
+
+  const filePath = await generateAndSaveImage(prompt, `background-${Date.now()}.png`);
+  console.log(`Background image saved to ${filePath}`);
   return filePath;
 }
 

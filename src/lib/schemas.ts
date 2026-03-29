@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+// ─── Scene & Script Schemas (existing) ─────────────────────────────────────
+
 export const SceneSchema = z.object({
   scene_number: z.number().describe("Sequential scene number starting from 1"),
   title: z.string().describe("Short descriptive title for this scene"),
@@ -54,6 +56,8 @@ export const ScriptSchema = z.object({
     .describe("Total estimated duration of the video in seconds"),
 });
 
+// ─── Template Input Schemas (existing) ──────────────────────────────────────
+
 export const ProductLaunchInputSchema = z.object({
   brandName: z.string().describe("Brand or product name"),
   tagline: z.string().describe("Short tagline or slogan"),
@@ -98,6 +102,217 @@ export const BrandStoryInputSchema = z.object({
   logoUrl: z.string().optional().describe("Company logo URL"),
 });
 
+// ─── 3-Path Architecture Schemas ────────────────────────────────────────────
+
+/** Narration configuration schema */
+export const NarrationConfigSchema = z.object({
+  voiceId: z.string().optional().describe("ElevenLabs voice ID"),
+  model: z
+    .enum(["eleven_v3", "eleven_multilingual_v2", "eleven_flash_v2_5"])
+    .optional()
+    .describe("ElevenLabs voice model"),
+  speed: z
+    .number()
+    .min(0.7)
+    .max(1.2)
+    .optional()
+    .describe("Speech speed multiplier (0.7 – 1.2)"),
+  script: z.string().describe("Narration script text"),
+});
+
+/** Music generation configuration schema */
+export const MusicGenConfigSchema = z.object({
+  genre: z.string().optional().describe("Music genre (e.g. lo-fi, orchestral, pop)"),
+  mood: z.string().optional().describe("Music mood (e.g. upbeat, melancholic, tense)"),
+  tempo: z
+    .enum(["slow", "medium", "fast"])
+    .optional()
+    .describe("Tempo preference"),
+  instruments: z.string().optional().describe("Instrument hints (e.g. piano, guitar, synth)"),
+  withVocals: z.boolean().optional().describe("Whether to include vocals"),
+  lyriaModel: z
+    .enum(["lyria-3-clip", "lyria-3-pro", "lyria-2"])
+    .optional()
+    .describe("Google Lyria model selection"),
+});
+
+/** Sound effect configuration schema */
+export const SfxGenConfigSchema = z.object({
+  description: z.string().describe("Natural-language description of the desired sound effect"),
+  durationSeconds: z
+    .number()
+    .min(0.5)
+    .max(30)
+    .optional()
+    .describe("Duration of the sound effect in seconds (0.5 – 30)"),
+  looping: z.boolean().optional().describe("Whether the SFX should be seamlessly loopable"),
+  promptInfluence: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("How strongly the prompt influences generation (0 – 1)"),
+});
+
+/** Overlay configuration for Path C */
+export const OverlayConfigSchema = z.object({
+  titleText: z.string().optional().describe("Title overlay text"),
+  titlePosition: z.enum(["top", "center", "bottom"]).optional().describe("Title vertical position"),
+  lowerThirdText: z.string().optional().describe("Lower-third text overlay"),
+  logoUrl: z.string().optional().describe("Logo image URL"),
+  endCardCta: z.string().optional().describe("End-card call-to-action text"),
+});
+
+/** Shared audio options collected through the bot flow */
+export const SharedAudioOptionsSchema = z.object({
+  narration: NarrationConfigSchema.optional().describe("Narration configuration"),
+  music: MusicGenConfigSchema.optional().describe("Background music configuration"),
+  sfx: SfxGenConfigSchema.optional().describe("Sound effect configuration"),
+  captionStyle: z
+    .enum(["tiktok", "subtitle-bar", "karaoke", "typewriter"])
+    .optional()
+    .describe("Caption overlay style"),
+  generateThumbnail: z.boolean().optional().describe("Whether to auto-generate a thumbnail"),
+});
+
+/** Path A config: direct Veo video generation */
+export const PathAConfigSchema = z.object({
+  path: z.literal("ai-video").describe("Path identifier"),
+  model: z
+    .enum(["veo-3", "veo-3-fast", "veo-3.1"])
+    .describe("Veo model selection"),
+  aspectRatio: z
+    .enum(["16:9", "9:16", "1:1"])
+    .describe("Video aspect ratio"),
+  prompt: z.string().min(1).describe("Generation prompt"),
+  style: z
+    .enum(["cinematic", "anime", "realistic", "abstract", "social"])
+    .optional()
+    .describe("Video style preset"),
+  durationSeconds: z
+    .union([z.literal(4), z.literal(6), z.literal(8)])
+    .optional()
+    .describe("Clip duration in seconds"),
+  firstFrameImageUrl: z.string().optional().describe("URL for the first-frame reference image"),
+  audioStrategy: z
+    .enum(["native", "custom"])
+    .optional()
+    .describe("Native Veo audio vs custom audio pipeline"),
+  resolution: z
+    .enum(["720p", "1080p", "4k"])
+    .optional()
+    .describe("Output resolution"),
+  sharedAudio: SharedAudioOptionsSchema.optional().describe("Shared audio options"),
+});
+
+/** Path B config: Remotion-only compositions */
+export const PathBConfigSchema = z.object({
+  path: z.literal("remotion-only").describe("Path identifier"),
+  type: z
+    .enum(["text-video", "image-slideshow", "motion-graphics", "data-viz", "explainer", "promo"])
+    .describe("Remotion video type"),
+  aspectRatio: z
+    .enum(["16:9", "9:16", "1:1"])
+    .describe("Video aspect ratio"),
+  duration: z.number().positive().optional().describe("Total duration in seconds"),
+  fps: z.union([z.literal(24), z.literal(30), z.literal(60)]).optional().describe("Frame rate"),
+  resolution: z
+    .enum(["720p", "1080p", "4k"])
+    .optional()
+    .describe("Output resolution"),
+  // Content fields (conditional on type)
+  text: z.string().optional().describe("Text content for text-video"),
+  images: z.array(z.string()).optional().describe("Image URLs for image-slideshow"),
+  data: z.string().optional().describe("CSV or JSON data for data-viz"),
+  chartType: z
+    .enum(["bar", "line", "pie", "counter", "bar-race"])
+    .optional()
+    .describe("Chart type for data-viz"),
+  steps: z.string().optional().describe("Step-by-step outline for explainer"),
+  promoDetails: z
+    .object({
+      headline: z.string().optional(),
+      tagline: z.string().optional(),
+      cta: z.string().optional(),
+      brandColors: z.string().optional(),
+      logoUrl: z.string().optional(),
+    })
+    .optional()
+    .describe("Promo details"),
+  // Style & presentation
+  animationStyle: z
+    .enum(["smooth", "snappy", "cinematic", "playful", "minimal"])
+    .optional()
+    .describe("Animation style"),
+  transition: z
+    .enum(["fade", "slide", "wipe", "clockWipe", "flip", "none"])
+    .optional()
+    .describe("Transition between scenes"),
+  backgroundType: z
+    .enum(["solid", "ai-generated", "upload", "transparent"])
+    .optional()
+    .describe("Background type"),
+  backgroundColor: z.string().optional().describe("Hex color for solid background"),
+  backgroundImageUrl: z.string().optional().describe("URL for upload or AI-generated background"),
+  theme: z
+    .enum(["light", "dark", "neon", "minimal", "custom"])
+    .optional()
+    .describe("Color theme"),
+  generateAiImages: z.boolean().optional().describe("Whether to AI-generate images per scene"),
+  sharedAudio: SharedAudioOptionsSchema.optional().describe("Shared audio options"),
+});
+
+/** Path C config: upload and edit */
+export const PathCConfigSchema = z.object({
+  path: z.literal("upload-edit").describe("Path identifier"),
+  action: z
+    .enum([
+      "add-captions",
+      "remove-silence",
+      "remove-filler",
+      "add-music",
+      "add-narration",
+      "add-sfx",
+      "add-overlays",
+      "full-edit",
+    ])
+    .describe("Primary edit action"),
+  actions: z
+    .array(
+      z.enum([
+        "add-captions",
+        "remove-silence",
+        "remove-filler",
+        "add-music",
+        "add-narration",
+        "add-sfx",
+        "add-overlays",
+        "full-edit",
+      ])
+    )
+    .optional()
+    .describe("Multi-select edit actions"),
+  videoUrl: z.string().describe("Uploaded video URL"),
+  videoLocalPath: z.string().describe("Local path to downloaded video"),
+  overlayConfig: OverlayConfigSchema.optional().describe("Overlay configuration"),
+  narrationConfig: NarrationConfigSchema.optional().describe("Narration configuration"),
+  musicConfig: MusicGenConfigSchema.optional().describe("Music configuration"),
+  sfxConfig: SfxGenConfigSchema.optional().describe("Sound effect configuration"),
+  captionStyle: z
+    .enum(["tiktok", "subtitle-bar", "karaoke", "typewriter"])
+    .optional()
+    .describe("Caption overlay style"),
+});
+
+/** Union of all path config schemas */
+export const PathConfigSchema = z.discriminatedUnion("path", [
+  PathAConfigSchema,
+  PathBConfigSchema,
+  PathCConfigSchema,
+]);
+
+// ─── Generate Request Schema ────────────────────────────────────────────────
+
 export const GenerateRequestSchema = z.object({
   prompt: z.string().min(1).max(2000),
   templateId: z.enum(["custom", "product-launch", "explainer", "social-promo", "brand-story", "editorial"]).optional().default("product-launch"),
@@ -110,8 +325,10 @@ export const GenerateRequestSchema = z.object({
   sceneCount: z.number().min(1).max(8).optional().default(5),
   // 3-path architecture
   pathType: z.enum(["path-a", "path-b", "path-c"]).optional(),
-  pathConfig: z.record(z.string(), z.unknown()).optional(),
+  pathConfig: PathConfigSchema.optional(),
 });
+
+// ─── Composition Style Schema (existing) ────────────────────────────────────
 
 export const CompositionStyleSchema = z.object({
   titleFontSize: z.number().min(12).max(200).describe("Title text font size in pixels"),
@@ -144,6 +361,16 @@ export const EditRequestSchema = z.object({
   currentStyle: CompositionStyleSchema,
 });
 
+// ─── Inferred Types ─────────────────────────────────────────────────────────
+
 export type ScriptOutput = z.infer<typeof ScriptSchema>;
 export type SceneOutput = z.infer<typeof SceneSchema>;
 export type CompositionStyleOutput = z.infer<typeof CompositionStyleSchema>;
+export type PathAConfigOutput = z.infer<typeof PathAConfigSchema>;
+export type PathBConfigOutput = z.infer<typeof PathBConfigSchema>;
+export type PathCConfigOutput = z.infer<typeof PathCConfigSchema>;
+export type PathConfigOutput = z.infer<typeof PathConfigSchema>;
+export type SharedAudioOptionsOutput = z.infer<typeof SharedAudioOptionsSchema>;
+export type NarrationConfigOutput = z.infer<typeof NarrationConfigSchema>;
+export type MusicGenConfigOutput = z.infer<typeof MusicGenConfigSchema>;
+export type SfxGenConfigOutput = z.infer<typeof SfxGenConfigSchema>;

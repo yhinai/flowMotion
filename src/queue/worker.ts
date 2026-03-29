@@ -1,13 +1,14 @@
 import { generateScript, generateTemplateContent, analyzeYouTubeVideo } from "@/lib/gemini";
 import { generateVideoClip } from "@/lib/veo";
 import { generateAllAssets } from "@/lib/nano-banan";
-import { generateAllNarrations, generateAllSFX } from "@/lib/elevenlabs";
-import { renderVideo, renderTemplateVideo, renderEditorialVideo } from "@/lib/render";
+import { generateAllNarrations, generateAllSFX, generateNarration, generateSoundEffect } from "@/lib/elevenlabs";
+import { renderVideo, renderTemplateVideo, renderEditorialVideo, renderTextVideo, renderImageSlideshow, renderCaptionedVideo } from "@/lib/render";
 import { uploadFile, generateKey } from "@/lib/storage";
 import { generateMusic } from "@/lib/lyria";
 import { extractGitHubContent } from "@/lib/github";
 import { getTemplate } from "@/lib/templates";
-import { mkdir } from "fs/promises";
+import { mkdir, stat, copyFile } from "fs/promises";
+import { spawn } from "child_process";
 import path from "path";
 import type {
   JobStatus,
@@ -24,10 +25,18 @@ import type {
   PathBConfig,
   PathCConfig,
   PathJobType,
+  SharedAudioOptions,
+  EditAction,
+  CaptionSegment,
+  CaptionStyle,
+  LyriaModel as LyriaModelType,
 } from "@/lib/types";
 import { DEFAULT_STYLE } from "@/lib/types";
 
-// Persist the jobs Map on global so it survives Next.js hot module reloads in dev.
+// ═══════════════════════════════════════════════════════════════════════════════
+// Global Jobs Map (survives Next.js HMR)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 declare global {
   // eslint-disable-next-line no-var
   var __jobsMap: Map<string, JobStatus> | undefined;
@@ -37,6 +46,18 @@ const jobs: Map<string, JobStatus> =
   global.__jobsMap ?? (global.__jobsMap = new Map());
 
 export { jobs };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const RENDER_DIR = "/tmp/renders";
+const MAX_TELEGRAM_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const FILLER_WORD_PATTERN = /\b(um|uh|uhh|umm|err|errm|hmm|hm|like|you know|i mean|sort of|kind of|basically|actually|literally)\b/gi;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Job Creation & Status
+// ═══════════════════════════════════════════════════════════════════════════════
 
 interface TemplateOptions {
   templateId?: TemplateId;
@@ -102,6 +123,10 @@ export function getJobStatus(jobId: string): JobStatus | undefined {
   return jobs.get(jobId);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function updateJob(jobId: string, updates: Partial<JobStatus>): void {
   const job = jobs.get(jobId);
   if (!job) return;
@@ -133,6 +158,386 @@ async function updateJobPersistent(jobId: string, updates: Partial<JobStatus>): 
     // Redis not available, in-memory only
   }
 }
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "An unknown error occurred";
+}
+
+async function ensureRenderDir(): Promise<void> {
+  await mkdir(RENDER_DIR, { recursive: true });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// File Size Check & Re-encode
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check output file size and re-encode at lower bitrate if > 50MB.
+ * Returns the final file path (original or re-encoded).
+ */
+async function ensureFileSizeLimit(filePath: string, jobId: string): Promise<string> {
+  try {
+    const stats = await stat(filePath);
+    if (stats.size <= MAX_TELEGRAM_FILE_SIZE) {
+      return filePath;
+    }
+
+    // Calculate target bitrate to fit within 50MB
+    // Get duration first
+    const durationSec = await getVideoDurationFFprobe(filePath);
+    // Target: 48MB to leave some margin (in bits)
+    const targetBits = 48 * 1024 * 1024 * 8;
+    // Reserve 128kbps for audio
+    const audioBitrate = 128_000;
+    const videoBitrate = Math.floor(targetBits / durationSec - audioBitrate);
+
+    const reEncodedPath = path.join(RENDER_DIR, `${jobId}-compressed.mp4`);
+
+    await runFFmpeg([
+      "-i", filePath,
+      "-c:v", "libx264",
+      "-b:v", `${videoBitrate}`,
+      "-maxrate", `${Math.floor(videoBitrate * 1.5)}`,
+      "-bufsize", `${Math.floor(videoBitrate * 3)}`,
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-movflags", "+faststart",
+      "-y", reEncodedPath,
+    ]);
+
+    return reEncodedPath;
+  } catch (err) {
+    console.warn(`File size check/re-encode failed: ${errorMessage(err)}. Using original.`);
+    return filePath;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FFmpeg Helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function runFFmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", ...args]);
+    let stderr = "";
+    proc.stderr?.setEncoding("utf8");
+    proc.stderr?.on("data", (d: string) => { stderr += d; });
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited with code ${code}: ${stderr.slice(0, 500)}`));
+    });
+    proc.on("error", (err) => reject(new Error(`ffmpeg failed to start: ${err.message}`)));
+  });
+}
+
+function getVideoDurationFFprobe(videoPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      videoPath,
+    ]);
+    let output = "";
+    proc.stdout.setEncoding("utf8");
+    proc.stdout.on("data", (d: string) => { output += d; });
+    proc.on("close", (code) => {
+      const duration = parseFloat(output.trim());
+      if (code !== 0 || isNaN(duration)) {
+        reject(new Error(`ffprobe failed with code ${code}`));
+      } else {
+        resolve(duration);
+      }
+    });
+    proc.on("error", (err) => reject(new Error(`ffprobe not found: ${err.message}`)));
+  });
+}
+
+/**
+ * Overlay an audio file on top of a video using ffmpeg.
+ * audioVolume controls the mix level (0.0 - 1.0) of the overlaid audio.
+ * Returns the path to the output file.
+ */
+async function overlayAudioOnVideo(
+  videoPath: string,
+  audioPath: string,
+  outputPath: string,
+  audioVolume: number = 0.8
+): Promise<string> {
+  await runFFmpeg([
+    "-i", videoPath,
+    "-i", audioPath,
+    "-filter_complex",
+    `[1:a]volume=${audioVolume}[overlay];[0:a][overlay]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
+    "-map", "0:v",
+    "-map", "[aout]",
+    "-c:v", "copy",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-shortest",
+    "-y", outputPath,
+  ]);
+  return outputPath;
+}
+
+/**
+ * Overlay audio on a video that may not have an audio stream.
+ * Uses the audio as-is as the sole audio track if the video has no audio.
+ */
+async function addAudioToVideo(
+  videoPath: string,
+  audioPath: string,
+  outputPath: string,
+  volume: number = 0.8
+): Promise<string> {
+  // Check if video has an audio stream
+  const hasAudio = await videoHasAudioStream(videoPath);
+
+  if (hasAudio) {
+    return overlayAudioOnVideo(videoPath, audioPath, outputPath, volume);
+  }
+
+  // No existing audio — just add the audio track
+  await runFFmpeg([
+    "-i", videoPath,
+    "-i", audioPath,
+    "-filter_complex", `[1:a]volume=${volume}[aout]`,
+    "-map", "0:v",
+    "-map", "[aout]",
+    "-c:v", "copy",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-shortest",
+    "-y", outputPath,
+  ]);
+  return outputPath;
+}
+
+function videoHasAudioStream(videoPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-select_streams", "a",
+      "-show_entries", "stream=index",
+      "-of", "csv=p=0",
+      videoPath,
+    ]);
+    let output = "";
+    proc.stdout.setEncoding("utf8");
+    proc.stdout.on("data", (d: string) => { output += d; });
+    proc.on("close", () => resolve(output.trim().length > 0));
+    proc.on("error", () => resolve(false));
+  });
+}
+
+/**
+ * Cut segments from a video and concatenate them using ffmpeg.
+ * Each segment is { startSec, endSec }.
+ */
+async function cutAndConcatSegments(
+  inputPath: string,
+  segments: ReadonlyArray<{ readonly startSec: number; readonly endSec: number }>,
+  outputPath: string
+): Promise<string> {
+  if (segments.length === 0) {
+    await copyFile(inputPath, outputPath);
+    return outputPath;
+  }
+
+  const tmpDir = `/tmp/cut-concat-${Date.now()}`;
+  await mkdir(tmpDir, { recursive: true });
+
+  // Extract each segment
+  const clipPaths = segments.map((_, i) =>
+    path.join(tmpDir, `clip-${i.toString().padStart(4, "0")}.mp4`)
+  );
+
+  await Promise.all(
+    segments.map((seg, i) =>
+      runFFmpeg([
+        "-i", inputPath,
+        "-ss", seg.startSec.toFixed(3),
+        "-to", seg.endSec.toFixed(3),
+        "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
+        clipPaths[i],
+      ])
+    )
+  );
+
+  // Write concat file
+  const concatFile = path.join(tmpDir, "concat.txt");
+  const { writeFile } = await import("fs/promises");
+  await writeFile(concatFile, clipPaths.map((p) => `file '${p}'`).join("\n"), "utf8");
+
+  // Concatenate
+  await runFFmpeg([
+    "-f", "concat",
+    "-safe", "0",
+    "-i", concatFile,
+    "-c", "copy",
+    "-y", outputPath,
+  ]);
+
+  return outputPath;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Shared Audio Pipeline
+// ═══════════════════════════════════════════════════════════════════════════════
+
+interface SharedAudioResult {
+  readonly narrationUrl?: string;
+  readonly narrationLocalPath?: string;
+  readonly musicUrl?: string;
+  readonly musicLocalPath?: string;
+  readonly sfxUrl?: string;
+  readonly sfxLocalPath?: string;
+}
+
+/**
+ * Process shared audio options (narration, music, SFX) and return URLs + local paths.
+ * All three are generated in parallel via Promise.allSettled for resilience.
+ */
+async function processSharedAudio(
+  jobId: string,
+  sharedAudio: SharedAudioOptions
+): Promise<SharedAudioResult> {
+  const result: {
+    narrationUrl?: string;
+    narrationLocalPath?: string;
+    musicUrl?: string;
+    musicLocalPath?: string;
+    sfxUrl?: string;
+    sfxLocalPath?: string;
+  } = {};
+
+  const tasks: Array<Promise<void>> = [];
+
+  // Narration
+  if (sharedAudio.narration) {
+    const narrationConfig = sharedAudio.narration;
+    tasks.push(
+      (async () => {
+        const narrationDir = "/tmp/narration";
+        await mkdir(narrationDir, { recursive: true });
+        const outputPath = path.join(narrationDir, `shared-narration-${jobId.slice(0, 8)}.mp3`);
+
+        const localPath = await generateNarration(
+          narrationConfig.script,
+          outputPath,
+          {
+            voiceId: narrationConfig.voiceId,
+            modelId: narrationConfig.model,
+          }
+        );
+        result.narrationLocalPath = localPath;
+
+        const key = generateKey(jobId, "shared-narration.mp3");
+        result.narrationUrl = await uploadFile(localPath, key);
+        console.log(`[SharedAudio] Narration uploaded: ${result.narrationUrl}`);
+      })().catch((err) => {
+        console.error(`[SharedAudio] Narration failed: ${errorMessage(err)}`);
+      })
+    );
+  }
+
+  // Music
+  if (sharedAudio.music) {
+    const musicConfig = sharedAudio.music;
+    tasks.push(
+      (async () => {
+        const prompt = [
+          musicConfig.genre ? `Genre: ${musicConfig.genre}` : "",
+          musicConfig.mood ? `Mood: ${musicConfig.mood}` : "",
+          musicConfig.instruments ? `Instruments: ${musicConfig.instruments}` : "",
+          musicConfig.withVocals ? "With vocals" : "Instrumental",
+        ].filter(Boolean).join(". ");
+
+        const localPath = await generateMusic(prompt, {
+          durationSeconds: 30,
+          genre: musicConfig.genre,
+          mood: musicConfig.mood,
+          tempo: musicConfig.tempo,
+          model: (musicConfig.lyriaModel as "lyria-2" | "lyria-3-clip" | "lyria-3-pro") ?? "lyria-2",
+        });
+        result.musicLocalPath = localPath;
+
+        const ext = path.extname(localPath) || ".wav";
+        const key = generateKey(jobId, `shared-music${ext}`);
+        result.musicUrl = await uploadFile(localPath, key);
+        console.log(`[SharedAudio] Music uploaded: ${result.musicUrl}`);
+      })().catch((err) => {
+        console.error(`[SharedAudio] Music failed: ${errorMessage(err)}`);
+      })
+    );
+  }
+
+  // Sound Effects
+  if (sharedAudio.sfx) {
+    const sfxConfig = sharedAudio.sfx;
+    tasks.push(
+      (async () => {
+        const sfxDir = "/tmp/sfx";
+        await mkdir(sfxDir, { recursive: true });
+        const outputPath = path.join(sfxDir, `shared-sfx-${jobId.slice(0, 8)}.mp3`);
+
+        const localPath = await generateSoundEffect(
+          sfxConfig.description,
+          sfxConfig.durationSeconds ?? 5,
+          outputPath
+        );
+        result.sfxLocalPath = localPath;
+
+        const key = generateKey(jobId, "shared-sfx.mp3");
+        result.sfxUrl = await uploadFile(localPath, key);
+        console.log(`[SharedAudio] SFX uploaded: ${result.sfxUrl}`);
+      })().catch((err) => {
+        console.error(`[SharedAudio] SFX failed: ${errorMessage(err)}`);
+      })
+    );
+  }
+
+  await Promise.allSettled(tasks);
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Nano Banana Image Generation Helper
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generate an image using Nano Banana (Gemini image model).
+ * Returns the local file path of the generated image.
+ */
+async function generateImageWithNanoBanana(prompt: string, filename: string): Promise<string> {
+  const { GoogleGenAI } = await import("@google/genai");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: prompt,
+    config: { responseModalities: ["IMAGE"] },
+  });
+
+  const part = response.candidates?.[0]?.content?.parts?.[0];
+  if (!part?.inlineData?.data) {
+    throw new Error("Nano Banana returned no image data");
+  }
+
+  const outputDir = "/tmp/nano-banan";
+  await mkdir(outputDir, { recursive: true });
+  const filePath = path.join(outputDir, filename);
+  const { writeFile } = await import("fs/promises");
+  await writeFile(filePath, Buffer.from(part.inlineData.data, "base64"));
+
+  return filePath;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Legacy Pipeline (processJob)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export async function processJob(
   jobId: string,
@@ -488,6 +893,10 @@ export async function processJob(
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Template Pipeline (processTemplateJob)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /**
  * Template-based generation pipeline.
  * Stages: extract content -> generate template content -> generate music -> render -> upload
@@ -806,9 +1215,13 @@ async function processTemplateJob(
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Editorial Pipeline (processEditorialJob)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /**
  * Editorial video generation pipeline.
- * Uses the editorial engine (source → brain → director → compiler → Remotion render).
+ * Uses the editorial engine (source -> brain -> director -> compiler -> Remotion render).
  */
 async function processEditorialJob(
   jobId: string,
@@ -1203,34 +1616,79 @@ async function processEditorialJob(
 // 3-Path Architecture Processors
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── Path A: AI Video Generation ─────────────────────────────────────────────
+
 /**
  * Path A: Direct Veo video generation.
- * Prompt → Veo → upload → deliver.
+ *
+ * Pipeline:
+ *   1. (Optional) Generate first frame with Nano Banana
+ *   2. Call Veo with model, aspectRatio, prompt, style, duration, firstFrame, generateAudio
+ *   3. If audioStrategy === "custom" -> run shared audio pipeline
+ *   4. If generateThumbnail -> generate thumbnail with Nano Banana
+ *   5. File size check + upload -> mark completed
  */
 async function processPathAJob(
   jobId: string,
   config: PathAConfig
 ): Promise<void> {
   try {
+    // ── Step 1: First Frame Generation ──────────────────────────────────────
+    let firstFrameImageUrl = config.firstFrameImageUrl;
+
+    if (firstFrameImageUrl === "__ai_generate__") {
+      await updateJobPersistent(jobId, {
+        stage: "generating_clips",
+        progress: 5,
+        message: "Generating first frame with Nano Banana...",
+      });
+
+      try {
+        const firstFramePrompt = `Opening shot for video: ${config.prompt}. ${config.style ? `Style: ${config.style}.` : ""} Cinematic, high quality, photorealistic. Perfect as a video's opening frame.`;
+        const firstFramePath = await generateImageWithNanoBanana(
+          firstFramePrompt,
+          `first-frame-${jobId.slice(0, 8)}.png`
+        );
+
+        // Upload the first frame so Veo can reference it via URL
+        const firstFrameKey = generateKey(jobId, "first-frame.png");
+        firstFrameImageUrl = await uploadFile(firstFramePath, firstFrameKey);
+        console.log(`[PathA] First frame generated and uploaded: ${firstFrameImageUrl}`);
+      } catch (err) {
+        console.warn(`[PathA] First frame generation failed, proceeding without: ${errorMessage(err)}`);
+        firstFrameImageUrl = undefined;
+      }
+    }
+
+    // ── Step 2: Veo Video Generation ────────────────────────────────────────
     await updateJobPersistent(jobId, {
       stage: "generating_clips",
       progress: 10,
-      message: `Generating video with ${config.model === "veo-3" ? "Veo 3" : "Veo 3.1"}...`,
+      message: `Generating video with ${config.model}...`,
     });
 
     // Map user model names to API model IDs
-    const modelId =
-      config.model === "veo-3"
-        ? "veo-3.0-generate-preview"
-        : "veo-3.1-fast-generate-preview";
+    const modelMap: Record<string, string> = {
+      "veo-3": "veo-3.0-generate-001",
+      "veo-3-fast": "veo-3.0-fast-generate-001",
+      "veo-3.1": "veo-3.1-generate-preview",
+    };
+    const modelId = modelMap[config.model] ?? "veo-3.1-generate-preview";
 
-    // Generate a single video clip directly from prompt
+    // Build visual description with optional style as negative prompt hint
+    const visualDescription = config.style
+      ? `${config.style} style: ${config.prompt}`
+      : config.prompt;
+
+    // Determine if Veo should generate native audio
+    const generateAudio = config.audioStrategy !== "custom";
+
     const scene: Scene = {
       scene_number: 1,
       title: "AI Video",
-      visual_description: config.prompt,
-      narration_text: "",
-      duration_seconds: 8,
+      visual_description: visualDescription,
+      narration_text: config.prompt,
+      duration_seconds: config.durationSeconds ?? 8,
       camera_direction: "cinematic",
       mood: "dynamic",
       transition: "cut",
@@ -1238,116 +1696,673 @@ async function processPathAJob(
 
     const clipPath = await generateVideoClip(scene, {
       model: modelId,
-      aspectRatio: config.aspectRatio,
-      resolution: "720p",
+      aspectRatio: config.aspectRatio === "1:1" ? "16:9" : config.aspectRatio,
+      resolution: (config.resolution === "4k" ? "1080p" : config.resolution) ?? "720p",
+      durationSeconds: config.durationSeconds,
+      firstFrameImageUrl: firstFrameImageUrl && firstFrameImageUrl !== "__ai_generate__"
+        ? firstFrameImageUrl
+        : undefined,
     });
 
     checkCancelled(jobId);
+
+    // ── Step 3: Custom Audio Pipeline ───────────────────────────────────────
+    let sharedAudioResult: SharedAudioResult = {};
+
+    if (config.audioStrategy === "custom" && config.sharedAudio) {
+      await updateJobPersistent(jobId, {
+        progress: 45,
+        message: "Generating custom audio (narration, music, SFX)...",
+      });
+
+      sharedAudioResult = await processSharedAudio(jobId, config.sharedAudio);
+
+      // Overlay audio layers onto the video using ffmpeg
+      let currentVideoPath = clipPath;
+      const tmpDir = `/tmp/path-a-audio-${jobId.slice(0, 8)}`;
+      await mkdir(tmpDir, { recursive: true });
+
+      if (sharedAudioResult.narrationLocalPath) {
+        const withNarration = path.join(tmpDir, "with-narration.mp4");
+        try {
+          currentVideoPath = await addAudioToVideo(
+            currentVideoPath,
+            sharedAudioResult.narrationLocalPath,
+            withNarration,
+            0.9
+          );
+        } catch (err) {
+          console.warn(`[PathA] Narration overlay failed: ${errorMessage(err)}`);
+        }
+      }
+
+      if (sharedAudioResult.musicLocalPath) {
+        const withMusic = path.join(tmpDir, "with-music.mp4");
+        try {
+          currentVideoPath = await addAudioToVideo(
+            currentVideoPath,
+            sharedAudioResult.musicLocalPath,
+            withMusic,
+            0.3
+          );
+        } catch (err) {
+          console.warn(`[PathA] Music overlay failed: ${errorMessage(err)}`);
+        }
+      }
+
+      if (sharedAudioResult.sfxLocalPath) {
+        const withSfx = path.join(tmpDir, "with-sfx.mp4");
+        try {
+          currentVideoPath = await addAudioToVideo(
+            currentVideoPath,
+            sharedAudioResult.sfxLocalPath,
+            withSfx,
+            0.7
+          );
+        } catch (err) {
+          console.warn(`[PathA] SFX overlay failed: ${errorMessage(err)}`);
+        }
+      }
+
+      // Use the audio-mixed video as the final clip
+      if (currentVideoPath !== clipPath) {
+        // Copy the final mixed file to the expected location
+        const finalMixedPath = path.join(tmpDir, "final-mixed.mp4");
+        if (currentVideoPath !== finalMixedPath) {
+          await copyFile(currentVideoPath, finalMixedPath);
+          currentVideoPath = finalMixedPath;
+        }
+      }
+      // Update clipPath reference for the upload step
+      // We will use currentVideoPath below
+      Object.defineProperty(scene, "_finalVideoPath", { value: currentVideoPath, writable: true });
+    }
+
+    // ── Step 3b: Standalone Music Generation (when sharedAudio.music provided without custom pipeline) ──
+    if (config.sharedAudio?.music && !sharedAudioResult.musicUrl) {
+      try {
+        const musicGenConfig = config.sharedAudio.music;
+        const musicPrompt = `${musicGenConfig.genre ?? "ambient"} ${musicGenConfig.mood ?? "upbeat"} background music for: ${config.prompt.slice(0, 100)}`;
+
+        const musicPath = await generateMusic(musicPrompt, {
+          durationSeconds: config.durationSeconds ?? 8,
+          genre: musicGenConfig.genre,
+          mood: musicGenConfig.mood ?? "upbeat",
+          tempo: musicGenConfig.tempo ?? "medium",
+          instruments: musicGenConfig.instruments,
+          withVocals: musicGenConfig.withVocals,
+          model: musicGenConfig.lyriaModel ?? "lyria-3-clip",
+        });
+
+        const musicKey = generateKey(jobId, "music.mp3");
+        const musicUrl = await uploadFile(musicPath, musicKey);
+        sharedAudioResult = { ...sharedAudioResult, musicUrl: musicUrl, musicLocalPath: musicPath };
+
+        // Overlay music onto the video
+        const tmpDir = `/tmp/path-a-audio-${jobId.slice(0, 8)}`;
+        await mkdir(tmpDir, { recursive: true });
+        const withMusic = path.join(tmpDir, "with-music.mp4");
+        const baseVideo = ((scene as unknown as Record<string, string>)._finalVideoPath as string | undefined) ?? clipPath;
+        try {
+          const mixedPath = await addAudioToVideo(baseVideo, musicPath, withMusic, 0.3);
+          Object.defineProperty(scene, "_finalVideoPath", { value: mixedPath, writable: true });
+        } catch (overlayErr) {
+          console.warn(`[PathA] Music overlay failed: ${errorMessage(overlayErr)}`);
+        }
+
+        console.log(`[PathA] Standalone music generated and uploaded: ${musicUrl}`);
+      } catch (err) {
+        console.warn(`[PathA] Music generation failed (non-blocking): ${errorMessage(err)}`);
+      }
+    }
+
+    // ── Step 4: Thumbnail Generation ────────────────────────────────────────
+    let thumbnailUrl: string | undefined;
+
+    if (config.sharedAudio?.generateThumbnail) {
+      await updateJobPersistent(jobId, {
+        progress: 65,
+        message: "Generating thumbnail...",
+      });
+
+      try {
+        const thumbPrompt = `Eye-catching YouTube thumbnail for: ${config.prompt}. ${config.style ? `Style: ${config.style}.` : ""} Bold, attention-grabbing, high contrast. No excessive text.`;
+        const thumbPath = await generateImageWithNanoBanana(
+          thumbPrompt,
+          `thumbnail-${jobId.slice(0, 8)}.png`
+        );
+        const thumbKey = generateKey(jobId, "thumbnail.png");
+        thumbnailUrl = await uploadFile(thumbPath, thumbKey);
+        console.log(`[PathA] Thumbnail uploaded: ${thumbnailUrl}`);
+      } catch (err) {
+        console.warn(`[PathA] Thumbnail generation failed: ${errorMessage(err)}`);
+      }
+    }
+
+    // ── Step 5: File Size Check + Upload ────────────────────────────────────
     await updateJobPersistent(jobId, {
       stage: "uploading_assets",
-      progress: 70,
-      message: "Uploading video...",
+      progress: 75,
+      message: "Checking file size and uploading video...",
     });
 
+    // Determine the final video path (may have audio overlays from custom pipeline or standalone music)
+    const finalVideoPath = (scene as unknown as Record<string, string>)._finalVideoPath ?? clipPath;
+
+    // File size check
+    const uploadReadyPath = await ensureFileSizeLimit(finalVideoPath, jobId);
+
     const downloadKey = generateKey(jobId, "final.mp4");
-    const downloadUrl = await uploadFile(clipPath, downloadKey);
+    const downloadUrl = await uploadFile(uploadReadyPath, downloadKey);
 
     await updateJobPersistent(jobId, {
       stage: "completed",
       progress: 100,
       message: "Video generation completed",
       downloadUrl,
+      generatedScript: {
+        title: "AI Video",
+        theme: "ai-generated",
+        target_audience: "general",
+        music_prompt: "",
+        total_duration_seconds: config.durationSeconds ?? 8,
+        scenes: [{
+          ...scene,
+          videoUrl: downloadUrl,
+          videoLocalPath: finalVideoPath,
+          narrationAudioUrl: sharedAudioResult.narrationUrl,
+          soundEffectUrl: sharedAudioResult.sfxUrl,
+        }],
+        ...(thumbnailUrl ? { titleCardUrl: thumbnailUrl } : {}),
+        ...(sharedAudioResult.musicUrl ? { musicUrl: sharedAudioResult.musicUrl } : {}),
+      },
     });
   } catch (error) {
     await updateJobPersistent(jobId, {
       stage: "failed",
-      message: error instanceof Error ? error.message : "An unknown error occurred",
-      error: error instanceof Error ? error.message : "An unknown error occurred",
+      message: errorMessage(error),
+      error: errorMessage(error),
     });
   }
 }
 
+// ─── Path B: Remotion-Only Video ─────────────────────────────────────────────
+
 /**
  * Path B: Remotion-only video generation.
- * Text Video or Image Slideshow → Remotion render → upload → deliver.
+ *
+ * Handles ALL 6 types:
+ *   1. text-video       -> TextVideo composition
+ *   2. image-slideshow  -> ImageSlideshow composition
+ *   3. motion-graphics  -> TextVideo with enhanced animation props
+ *   4. data-viz         -> TextVideo with formatted data display
+ *   5. explainer        -> Explainer template composition
+ *   6. promo            -> SocialPromo template composition
+ *
+ * Also handles: animation style, transitions, backgrounds, AI image generation,
+ * shared audio pipeline, and thumbnail generation.
  */
 async function processPathBJob(
   jobId: string,
   config: PathBConfig
 ): Promise<void> {
   try {
-    // Generate background music while we prepare the render
     await updateJobPersistent(jobId, {
       stage: "composing_video",
       progress: 5,
-      message: "Generating background music...",
+      message: `Preparing ${config.type} video...`,
     });
 
-    const contentHint = config.type === "text-video"
-      ? (config.text ?? "").slice(0, 100)
-      : "image slideshow background";
+    // ── Step 1: AI Image Generation (if requested) ──────────────────────────
+    let generatedImages: string[] = [];
 
-    const totalSlides = config.type === "text-video"
-      ? (config.text ?? "").split("\n").filter(Boolean).length
-      : (config.images ?? []).length;
-    const durationPerSlide = config.duration ?? (config.type === "text-video" ? 3 : 4);
-    const totalDuration = totalSlides * durationPerSlide;
+    if (config.generateAiImages) {
+      await updateJobPersistent(jobId, {
+        progress: 8,
+        message: "Generating AI images for scenes...",
+      });
 
-    // Generate music (non-blocking — failure is acceptable)
-    let musicUrl: string | undefined;
-    try {
-      const musicPath = await generateMusic(
-        `Background music for: ${contentHint}`,
-        { durationSeconds: totalDuration, mood: "upbeat", tempo: "medium" }
-      );
-      const musicKey = generateKey(jobId, "music.wav");
-      musicUrl = await uploadFile(musicPath, musicKey);
-    } catch (err) {
-      console.warn(`Path B music generation failed (non-blocking): ${err instanceof Error ? err.message : err}`);
+      try {
+        // Determine how many images to generate based on type
+        const imagePrompts: string[] = [];
+
+        if (config.type === "text-video" || config.type === "motion-graphics") {
+          const lines = (config.text ?? "").split("\n").map(l => l.trim()).filter(Boolean);
+          for (const line of lines.slice(0, 10)) {
+            imagePrompts.push(`Illustration for: ${line}. Clean, modern, visually striking.`);
+          }
+        } else if (config.type === "data-viz") {
+          imagePrompts.push(`Professional data visualization background. Clean, minimal, with subtle grid pattern.`);
+        } else if (config.type === "explainer") {
+          const steps = (config.steps ?? "").split("\n").filter(Boolean);
+          for (const step of steps.slice(0, 8)) {
+            imagePrompts.push(`Icon/illustration for explainer step: ${step}. Flat design, modern.`);
+          }
+        } else if (config.type === "promo") {
+          imagePrompts.push(`Product showcase background for: ${config.promoDetails?.headline ?? "promotion"}. Premium, eye-catching.`);
+        }
+
+        const imageResults = await Promise.allSettled(
+          imagePrompts.map((prompt, i) =>
+            generateImageWithNanoBanana(prompt, `pathb-img-${jobId.slice(0, 8)}-${i}.png`)
+              .then(async (localPath) => {
+                const key = generateKey(jobId, `scene-image-${i}.png`);
+                return uploadFile(localPath, key);
+              })
+          )
+        );
+
+        generatedImages = imageResults
+          .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+          .map(r => r.value);
+
+        console.log(`[PathB] Generated ${generatedImages.length}/${imagePrompts.length} AI images`);
+      } catch (err) {
+        console.warn(`[PathB] AI image generation failed: ${errorMessage(err)}`);
+      }
     }
 
+    // ── Step 2: Background Image (if AI-generated) ──────────────────────────
+    let backgroundImageUrl = config.backgroundImageUrl;
+
+    if (config.backgroundType === "ai-generated" && !backgroundImageUrl) {
+      try {
+        const bgPrompt = `Abstract background for ${config.type} video. ${config.theme ?? "dark"} theme. Minimal, elegant, no text.`;
+        const bgPath = await generateImageWithNanoBanana(bgPrompt, `pathb-bg-${jobId.slice(0, 8)}.png`);
+        const bgKey = generateKey(jobId, "background.png");
+        backgroundImageUrl = await uploadFile(bgPath, bgKey);
+        console.log(`[PathB] Background image generated: ${backgroundImageUrl}`);
+      } catch (err) {
+        console.warn(`[PathB] Background generation failed: ${errorMessage(err)}`);
+      }
+    }
+
+    // ── Step 3: Shared Audio Pipeline ───────────────────────────────────────
+    let sharedAudioResult: SharedAudioResult = {};
+    let musicUrl: string | undefined;
+
+    if (config.sharedAudio) {
+      await updateJobPersistent(jobId, {
+        progress: 15,
+        message: "Generating audio layers...",
+      });
+
+      sharedAudioResult = await processSharedAudio(jobId, config.sharedAudio);
+      musicUrl = sharedAudioResult.musicUrl;
+    }
+
+    // If no shared audio music and user didn't explicitly decline, generate background music
+    // When sharedAudio exists but music is undefined, user said "No" to music — respect that
+    const userDeclinedMusic = config.sharedAudio && !config.sharedAudio.music;
+    if (!musicUrl && !userDeclinedMusic) {
+      try {
+        const contentHint = config.type === "text-video"
+          ? (config.text ?? "").slice(0, 100)
+          : config.type === "promo"
+            ? (config.promoDetails?.headline ?? "promotional video")
+            : `${config.type} video`;
+
+        const musicGenConfig = config.sharedAudio?.music;
+        const musicPrompt = musicGenConfig
+          ? `${musicGenConfig.genre ?? "ambient"} ${musicGenConfig.mood ?? "upbeat"} background music for: ${contentHint}`
+          : `Background music for: ${contentHint}`;
+
+        const musicPath = await generateMusic(musicPrompt, {
+          durationSeconds: config.duration ?? 30,
+          genre: musicGenConfig?.genre,
+          mood: musicGenConfig?.mood ?? "upbeat",
+          tempo: musicGenConfig?.tempo ?? "medium",
+          instruments: musicGenConfig?.instruments,
+          withVocals: musicGenConfig?.withVocals,
+          model: musicGenConfig?.lyriaModel ?? "lyria-3-clip",
+        });
+        const musicExt = path.extname(musicPath) || ".mp3";
+        const musicKey = generateKey(jobId, `music${musicExt}`);
+        musicUrl = await uploadFile(musicPath, musicKey);
+      } catch (err) {
+        console.warn(`[PathB] Music generation failed (non-blocking): ${errorMessage(err)}`);
+      }
+    }
+
+    // ── Step 4: Render with Remotion ────────────────────────────────────────
     await updateJobPersistent(jobId, {
-      progress: 20,
-      message: `Creating ${config.type === "text-video" ? "text video" : "image slideshow"}...`,
+      progress: 30,
+      message: `Rendering ${config.type} video with Remotion...`,
     });
 
-    const renderDir = "/tmp/renders";
-    await mkdir(renderDir, { recursive: true });
-    const outputPath = `${renderDir}/${jobId}.mp4`;
+    await ensureRenderDir();
+    const outputPath = path.join(RENDER_DIR, `${jobId}.mp4`);
 
-    if (config.type === "text-video") {
-      const { renderTextVideo } = await import("@/lib/render");
-      await renderTextVideo(
-        config.text ?? "",
-        {
-          aspectRatio: config.aspectRatio,
-          duration: config.duration,
+    switch (config.type) {
+      case "text-video": {
+        // Check for repo slides mode
+        if (config.text?.startsWith("__REPO_SLIDES__:")) {
+          const repoUrl = config.text.replace("__REPO_SLIDES__:", "");
+
+          await updateJobPersistent(jobId, {
+            progress: 10,
+            message: "Analyzing GitHub repository...",
+          });
+
+          const { analyzeRepo } = await import("@/lib/github");
+          const ghAnalysis = await analyzeRepo(repoUrl);
+
+          checkCancelled(jobId);
+          await updateJobPersistent(jobId, {
+            progress: 30,
+            message: "Generating slide content with AI...",
+          });
+
+          // Map github.ts RepoAnalysis -> repo-slides.ts RepoAnalysis
+          const repoSlidesAnalysis = {
+            name: ghAnalysis.metadata.name,
+            fullName: `${ghAnalysis.metadata.name}`,
+            description: ghAnalysis.metadata.description,
+            url: repoUrl,
+            stars: ghAnalysis.metadata.stars,
+            forks: 0,
+            openIssues: 0,
+            language: ghAnalysis.metadata.language,
+            topics: ghAnalysis.metadata.topics,
+            readmeContent: ghAnalysis.metadata.readmeContent,
+            ownerAvatarUrl: ghAnalysis.metadata.ownerAvatarUrl,
+            defaultBranch: "main",
+            createdAt: "",
+            updatedAt: "",
+            license: ghAnalysis.stats.license || undefined,
+            languages: ghAnalysis.languages,
+            fileTree: ghAnalysis.fileTree.map((entry) => entry.path),
+            dependencies: {} as Record<string, string>,
+            recentCommits: ghAnalysis.recentCommits.map(
+              (c) => `${c.sha.slice(0, 7)} ${c.message} (${c.author})`
+            ),
+            contributors: ghAnalysis.contributors.map((c) => ({
+              login: c.login,
+              avatarUrl: c.avatarUrl,
+              contributions: c.contributions,
+            })),
+          };
+
+          // Extract dependencies from package.json if available
+          const pkgJson = ghAnalysis.keyFiles["package.json"];
+          if (pkgJson) {
+            try {
+              const pkg = JSON.parse(pkgJson);
+              repoSlidesAnalysis.dependencies = {
+                ...(pkg.dependencies ?? {}),
+                ...(pkg.devDependencies ?? {}),
+              };
+            } catch {
+              // Ignore parse failures
+            }
+          }
+
+          const { generateRepoSlides } = await import("@/lib/repo-slides");
+          const slideshow = await generateRepoSlides(repoSlidesAnalysis);
+
+          checkCancelled(jobId);
+          await updateJobPersistent(jobId, {
+            progress: 50,
+            message: `Rendering ${slideshow.slides.length} slides...`,
+          });
+
+          // Convert slides to text lines for TextVideo composition
+          const lines = slideshow.slides.map((slide) => {
+            if (slide.type === "title") {
+              return `${slide.title}${slide.subtitle ? "\n" + slide.subtitle : ""}`;
+            }
+            if (slide.bullets && slide.bullets.length > 0) {
+              return `${slide.title}\n${slide.bullets.join("\n")}`;
+            }
+            if (slide.stats) {
+              const statLines = Object.entries(slide.stats).map(
+                ([k, v]) => `${k}: ${v}`
+              );
+              return `${slide.title}\n${statLines.join("\n")}`;
+            }
+            return slide.title;
+          });
+
+          // Cap total video at 90 seconds max
+          const MAX_VIDEO_SECONDS = 90;
+          const SECONDS_PER_SLIDE = 5;
+          const maxSlides = Math.floor(MAX_VIDEO_SECONDS / SECONDS_PER_SLIDE);
+          const cappedLines = lines.slice(0, maxSlides);
+          console.log(`[RepoSlides] Slides: ${cappedLines.length}/${lines.length}, Duration: ${cappedLines.length * SECONDS_PER_SLIDE}s (max ${MAX_VIDEO_SECONDS}s)`);
+
+          await renderTextVideo(
+            cappedLines.join("\n"),
+            { aspectRatio: config.aspectRatio, duration: SECONDS_PER_SLIDE, musicUrl },
+            outputPath
+          );
+          break;
+        }
+
+        // Normal text video rendering
+        await renderTextVideo(
+          config.text ?? "",
+          {
+            aspectRatio: config.aspectRatio,
+            duration: config.duration,
+            musicUrl,
+          },
+          outputPath
+        );
+        break;
+      }
+
+      case "image-slideshow": {
+        // Merge uploaded images with AI-generated images
+        const allImages = [...(config.images ?? []), ...generatedImages];
+        await renderImageSlideshow(
+          allImages,
+          {
+            aspectRatio: config.aspectRatio,
+            duration: config.duration,
+            musicUrl,
+          },
+          outputPath
+        );
+        break;
+      }
+
+      case "motion-graphics": {
+        // Use TextVideo as base with enhanced animation parameters
+        const motionText = config.text ?? "Motion Graphics";
+        await renderTextVideo(
+          motionText,
+          {
+            aspectRatio: config.aspectRatio,
+            duration: config.duration ?? 5,
+            musicUrl,
+          },
+          outputPath
+        );
+        break;
+      }
+
+      case "data-viz": {
+        // Format data for visual display, render as text video with chart description
+        const dataContent = config.data ?? "No data provided";
+        const chartLabel = config.chartType ? `[${config.chartType} chart]\n` : "";
+        const formattedText = `${chartLabel}${dataContent}`;
+
+        await renderTextVideo(
+          formattedText,
+          {
+            aspectRatio: config.aspectRatio,
+            duration: config.duration ?? 5,
+            musicUrl,
+          },
+          outputPath
+        );
+        break;
+      }
+
+      case "explainer": {
+        // Build explainer input from config steps
+        const stepsText = config.steps ?? "";
+        const parsedSteps = stepsText
+          .split("\n")
+          .filter(Boolean)
+          .map((line, i) => {
+            const parts = line.split(":").map(s => s.trim());
+            return {
+              title: parts[0] ?? `Step ${i + 1}`,
+              description: parts.slice(1).join(":") || line,
+            };
+          });
+
+        const explainerInput = {
+          title: "Explainer",
+          steps: parsedSteps,
+          conclusion: "That's a wrap!",
           musicUrl,
-        },
-        outputPath
-      );
-    } else {
-      const { renderImageSlideshow } = await import("@/lib/render");
-      await renderImageSlideshow(
-        config.images ?? [],
-        {
+        };
+
+        try {
+          await renderTemplateVideo(
+            "explainer",
+            explainerInput as unknown as TemplateInput & { musicUrl?: string },
+            outputPath
+          );
+        } catch (err) {
+          // Fallback: render as text video if explainer template fails
+          console.warn(`[PathB] Explainer template failed, falling back to text: ${errorMessage(err)}`);
+          const fallbackText = parsedSteps.map((s, i) => `${i + 1}. ${s.title}\n${s.description}`).join("\n\n");
+          await renderTextVideo(
+            fallbackText,
+            { aspectRatio: config.aspectRatio, duration: config.duration, musicUrl },
+            outputPath
+          );
+        }
+        break;
+      }
+
+      case "promo": {
+        // Build social promo input from config
+        const promoInput = {
+          hook: config.promoDetails?.headline ?? "Check this out!",
+          productImage: generatedImages[0] ?? "",
+          features: config.promoDetails?.tagline
+            ? [config.promoDetails.tagline]
+            : ["Amazing features", "Great value"],
+          cta: config.promoDetails?.cta ?? "Learn More",
           aspectRatio: config.aspectRatio,
-          duration: config.duration,
           musicUrl,
-        },
-        outputPath
-      );
+        };
+
+        try {
+          await renderTemplateVideo(
+            "social-promo",
+            promoInput as unknown as TemplateInput & { musicUrl?: string },
+            outputPath
+          );
+        } catch (err) {
+          // Fallback: render as text video
+          console.warn(`[PathB] Promo template failed, falling back to text: ${errorMessage(err)}`);
+          const fallbackText = [
+            config.promoDetails?.headline ?? "",
+            config.promoDetails?.tagline ?? "",
+            config.promoDetails?.cta ?? "",
+          ].filter(Boolean).join("\n\n");
+          await renderTextVideo(
+            fallbackText || "Promotional Video",
+            { aspectRatio: config.aspectRatio, duration: config.duration, musicUrl },
+            outputPath
+          );
+        }
+        break;
+      }
+
+      default: {
+        // Exhaustive fallback — should not reach here
+        const text = config.text ?? `${config.type} video`;
+        await renderTextVideo(
+          text,
+          { aspectRatio: config.aspectRatio, duration: config.duration, musicUrl },
+          outputPath
+        );
+      }
     }
 
     checkCancelled(jobId);
+
+    // ── Step 5: Overlay shared audio onto rendered video ────────────────────
+    let finalVideoPath = outputPath;
+
+    if (config.sharedAudio) {
+      const tmpDir = `/tmp/path-b-audio-${jobId.slice(0, 8)}`;
+      await mkdir(tmpDir, { recursive: true });
+
+      if (sharedAudioResult.narrationLocalPath) {
+        const withNarration = path.join(tmpDir, "with-narration.mp4");
+        try {
+          finalVideoPath = await addAudioToVideo(
+            finalVideoPath,
+            sharedAudioResult.narrationLocalPath,
+            withNarration,
+            0.9
+          );
+        } catch (err) {
+          console.warn(`[PathB] Narration overlay failed: ${errorMessage(err)}`);
+        }
+      }
+
+      if (sharedAudioResult.sfxLocalPath) {
+        const withSfx = path.join(tmpDir, "with-sfx.mp4");
+        try {
+          finalVideoPath = await addAudioToVideo(
+            finalVideoPath,
+            sharedAudioResult.sfxLocalPath,
+            withSfx,
+            0.7
+          );
+        } catch (err) {
+          console.warn(`[PathB] SFX overlay failed: ${errorMessage(err)}`);
+        }
+      }
+    }
+
+    // ── Step 6: Thumbnail Generation ────────────────────────────────────────
+    let thumbnailUrl: string | undefined;
+
+    if (config.sharedAudio?.generateThumbnail) {
+      await updateJobPersistent(jobId, {
+        progress: 75,
+        message: "Generating thumbnail...",
+      });
+
+      try {
+        const thumbDesc = config.type === "text-video"
+          ? (config.text ?? "").slice(0, 100)
+          : config.type === "promo"
+            ? (config.promoDetails?.headline ?? "promo")
+            : config.type;
+
+        const thumbPrompt = `Eye-catching thumbnail for a ${config.type} video about: ${thumbDesc}. Bold, modern, attention-grabbing.`;
+        const thumbPath = await generateImageWithNanoBanana(
+          thumbPrompt,
+          `thumbnail-${jobId.slice(0, 8)}.png`
+        );
+        const thumbKey = generateKey(jobId, "thumbnail.png");
+        thumbnailUrl = await uploadFile(thumbPath, thumbKey);
+        console.log(`[PathB] Thumbnail uploaded: ${thumbnailUrl}`);
+      } catch (err) {
+        console.warn(`[PathB] Thumbnail generation failed: ${errorMessage(err)}`);
+      }
+    }
+
+    // ── Step 7: File Size Check + Upload ────────────────────────────────────
     await updateJobPersistent(jobId, {
       stage: "uploading_assets",
-      progress: 80,
-      message: "Uploading video...",
+      progress: 85,
+      message: "Checking file size and uploading...",
     });
 
+    const uploadReadyPath = await ensureFileSizeLimit(finalVideoPath, jobId);
     const downloadKey = generateKey(jobId, "final.mp4");
-    const downloadUrl = await uploadFile(outputPath, downloadKey);
+    const downloadUrl = await uploadFile(uploadReadyPath, downloadKey);
 
     await updateJobPersistent(jobId, {
       stage: "completed",
@@ -1358,85 +2373,123 @@ async function processPathBJob(
   } catch (error) {
     await updateJobPersistent(jobId, {
       stage: "failed",
-      message: error instanceof Error ? error.message : "An unknown error occurred",
-      error: error instanceof Error ? error.message : "An unknown error occurred",
+      message: errorMessage(error),
+      error: errorMessage(error),
     });
   }
 }
 
+// ─── Path C: Upload & Edit ───────────────────────────────────────────────────
+
 /**
- * Path C: Upload & Edit.
- * Add Captions or Remove Silence → process → upload → deliver.
+ * Path C: Upload and edit existing video.
+ *
+ * Handles ALL edit actions (single or multi-select):
+ *   1. add-captions     -> transcribe with Gemini -> render CaptionedVideo
+ *   2. remove-silence   -> detect + remove silence with ffmpeg
+ *   3. remove-filler    -> transcribe -> regex match filler words -> cut + concat
+ *   4. add-music        -> generate music with Lyria -> overlay with ffmpeg
+ *   5. add-narration    -> generate narration with ElevenLabs -> overlay with ffmpeg
+ *   6. add-sfx          -> generate SFX with ElevenLabs -> overlay with ffmpeg
+ *   7. add-overlays     -> render overlay composition with Remotion
+ *   8. full-edit        -> run all applicable actions in sequence
+ *
+ * For multi-select: chain actions sequentially, each operating on the output of the previous.
  */
 async function processPathCJob(
   jobId: string,
   config: PathCConfig
 ): Promise<void> {
   try {
-    const renderDir = "/tmp/renders";
-    await mkdir(renderDir, { recursive: true });
-    const outputPath = `${renderDir}/${jobId}.mp4`;
+    await ensureRenderDir();
 
-    if (config.action === "add-captions") {
-      await updateJobPersistent(jobId, {
-        stage: "generating_script",
-        progress: 10,
-        message: "Transcribing audio...",
-      });
+    // Determine the action list: multi-select (config.actions) or single (config.action)
+    let actionList: EditAction[];
 
-      const { transcribeVideo } = await import("@/lib/transcribe");
-      const captions = await transcribeVideo(config.videoLocalPath);
-
-      checkCancelled(jobId);
-      await updateJobPersistent(jobId, {
-        stage: "uploading_assets",
-        progress: 40,
-        message: "Uploading source video for rendering...",
-      });
-
-      // Remotion's OffthreadVideo requires an HTTP URL — upload to Supabase first
-      const sourceKey = generateKey(jobId, `source${path.extname(config.videoLocalPath) || ".mp4"}`);
-      const sourceVideoUrl = await uploadFile(config.videoLocalPath, sourceKey);
-
-      checkCancelled(jobId);
-      await updateJobPersistent(jobId, {
-        stage: "composing_video",
-        progress: 50,
-        message: "Overlaying captions...",
-      });
-
-      const { renderCaptionedVideo } = await import("@/lib/render");
-      await renderCaptionedVideo(sourceVideoUrl, captions, outputPath);
+    if (config.actions && config.actions.length > 0) {
+      actionList = config.actions;
+    } else if (config.action === "full-edit") {
+      // Full edit applies a standard sequence of all relevant actions
+      actionList = [
+        "remove-silence",
+        "remove-filler",
+        "add-captions",
+        "add-narration",
+        "add-music",
+        "add-sfx",
+        "add-overlays",
+      ];
     } else {
-      await updateJobPersistent(jobId, {
-        stage: "generating_script",
-        progress: 10,
-        message: "Detecting silence...",
-      });
-
-      const { detectSilence } = await import("@/lib/silence");
-      const silenceIntervals = await detectSilence(config.videoLocalPath);
-
-      checkCancelled(jobId);
-      await updateJobPersistent(jobId, {
-        stage: "composing_video",
-        progress: 50,
-        message: "Removing silent segments...",
-      });
-
-      const { removeSilence } = await import("@/lib/silence");
-      await removeSilence(config.videoLocalPath, silenceIntervals, outputPath);
+      actionList = [config.action];
     }
 
+    // Filter out inapplicable actions (e.g., add-narration without narrationConfig)
+    const applicableActions = actionList.filter((action) => {
+      switch (action) {
+        case "add-narration": return !!config.narrationConfig;
+        case "add-music": return !!config.musicConfig;
+        case "add-sfx": return !!config.sfxConfig;
+        case "add-overlays": return !!config.overlayConfig;
+        default: return true;
+      }
+    });
+
+    if (applicableActions.length === 0) {
+      // Nothing to do — just upload the original
+      const downloadKey = generateKey(jobId, "final.mp4");
+      const downloadUrl = await uploadFile(config.videoLocalPath, downloadKey);
+      await updateJobPersistent(jobId, {
+        stage: "completed",
+        progress: 100,
+        message: "No actions to apply — original video delivered",
+        downloadUrl,
+      });
+      return;
+    }
+
+    const progressPerAction = 80 / applicableActions.length;
+    let currentVideoPath = config.videoLocalPath;
+    let currentProgress = 5;
+
+    for (let i = 0; i < applicableActions.length; i++) {
+      const action = applicableActions[i];
+      const stepOutput = path.join(RENDER_DIR, `${jobId}-step-${i}.mp4`);
+
+      await updateJobPersistent(jobId, {
+        stage: i === 0 ? "generating_script" : "composing_video",
+        progress: Math.round(currentProgress),
+        message: `Processing: ${formatActionName(action)} (${i + 1}/${applicableActions.length})...`,
+      });
+
+      checkCancelled(jobId);
+
+      try {
+        currentVideoPath = await processEditAction(
+          jobId,
+          action,
+          currentVideoPath,
+          stepOutput,
+          config
+        );
+      } catch (err) {
+        console.error(`[PathC] Action "${action}" failed: ${errorMessage(err)}. Continuing with previous output.`);
+        // Non-fatal: continue with the video from the previous step
+      }
+
+      currentProgress += progressPerAction;
+    }
+
+    // ── File Size Check + Upload ────────────────────────────────────────────
     checkCancelled(jobId);
     await updateJobPersistent(jobId, {
       stage: "uploading_assets",
-      progress: 85,
-      message: "Uploading processed video...",
+      progress: 88,
+      message: "Checking file size and uploading processed video...",
     });
 
+    const uploadReadyPath = await ensureFileSizeLimit(currentVideoPath, jobId);
     const downloadKey = generateKey(jobId, "final.mp4");
-    const downloadUrl = await uploadFile(outputPath, downloadKey);
+    const downloadUrl = await uploadFile(uploadReadyPath, downloadKey);
 
     await updateJobPersistent(jobId, {
       stage: "completed",
@@ -1447,8 +2500,255 @@ async function processPathCJob(
   } catch (error) {
     await updateJobPersistent(jobId, {
       stage: "failed",
-      message: error instanceof Error ? error.message : "An unknown error occurred",
-      error: error instanceof Error ? error.message : "An unknown error occurred",
+      message: errorMessage(error),
+      error: errorMessage(error),
     });
   }
+}
+
+/**
+ * Process a single edit action on a video file.
+ * Returns the path to the output file.
+ */
+async function processEditAction(
+  jobId: string,
+  action: EditAction,
+  inputPath: string,
+  outputPath: string,
+  config: PathCConfig
+): Promise<string> {
+  switch (action) {
+    // ── Add Captions ──────────────────────────────────────────────────────
+    case "add-captions": {
+      const { transcribeVideo } = await import("@/lib/transcribe");
+      const captions = await transcribeVideo(inputPath);
+
+      if (captions.length === 0) {
+        console.warn("[PathC] No speech detected for captioning — skipping");
+        return inputPath;
+      }
+
+      // Remotion's OffthreadVideo requires an HTTP URL
+      const sourceKey = generateKey(jobId, `source-captions${path.extname(inputPath) || ".mp4"}`);
+      const sourceVideoUrl = await uploadFile(inputPath, sourceKey);
+
+      await renderCaptionedVideo(sourceVideoUrl, captions, outputPath);
+      return outputPath;
+    }
+
+    // ── Remove Silence ────────────────────────────────────────────────────
+    case "remove-silence": {
+      const { detectSilence, removeSilence } = await import("@/lib/silence");
+      const silenceIntervals = await detectSilence(inputPath);
+
+      if (silenceIntervals.length === 0) {
+        console.log("[PathC] No silence detected — skipping");
+        return inputPath;
+      }
+
+      await removeSilence(inputPath, silenceIntervals, outputPath);
+      return outputPath;
+    }
+
+    // ── Remove Filler Words ───────────────────────────────────────────────
+    case "remove-filler": {
+      const { transcribeVideo } = await import("@/lib/transcribe");
+      const captions = await transcribeVideo(inputPath);
+
+      if (captions.length === 0) {
+        console.log("[PathC] No speech detected for filler removal — skipping");
+        return inputPath;
+      }
+
+      // Identify filler word segments
+      const fillerRanges: Array<{ startSec: number; endSec: number }> = [];
+
+      for (const caption of captions) {
+        if (FILLER_WORD_PATTERN.test(caption.text.toLowerCase())) {
+          fillerRanges.push({
+            startSec: caption.startMs / 1000,
+            endSec: caption.endMs / 1000,
+          });
+        }
+        // Reset lastIndex since we use the global flag
+        FILLER_WORD_PATTERN.lastIndex = 0;
+      }
+
+      if (fillerRanges.length === 0) {
+        console.log("[PathC] No filler words detected — skipping");
+        return inputPath;
+      }
+
+      console.log(`[PathC] Found ${fillerRanges.length} filler word segments to remove`);
+
+      // Compute keep segments (inverse of filler ranges)
+      const duration = await getVideoDurationFFprobe(inputPath);
+      const keepSegments: Array<{ startSec: number; endSec: number }> = [];
+
+      // Sort filler ranges by start time
+      const sortedFillers = [...fillerRanges].sort((a, b) => a.startSec - b.startSec);
+
+      let lastEnd = 0;
+      for (const filler of sortedFillers) {
+        if (filler.startSec > lastEnd + 0.05) {
+          keepSegments.push({ startSec: lastEnd, endSec: filler.startSec });
+        }
+        lastEnd = Math.max(lastEnd, filler.endSec);
+      }
+      if (lastEnd < duration) {
+        keepSegments.push({ startSec: lastEnd, endSec: duration });
+      }
+
+      if (keepSegments.length === 0) {
+        console.warn("[PathC] All content is filler words — returning original");
+        return inputPath;
+      }
+
+      await cutAndConcatSegments(inputPath, keepSegments, outputPath);
+      return outputPath;
+    }
+
+    // ── Add Music ─────────────────────────────────────────────────────────
+    case "add-music": {
+      const musicConfig = config.musicConfig;
+      if (!musicConfig) return inputPath;
+
+      const prompt = [
+        musicConfig.genre ? `Genre: ${musicConfig.genre}` : "",
+        musicConfig.mood ? `Mood: ${musicConfig.mood}` : "",
+        musicConfig.instruments ? `Instruments: ${musicConfig.instruments}` : "",
+      ].filter(Boolean).join(". ") || "Background music";
+
+      const videoDuration = await getVideoDurationFFprobe(inputPath);
+
+      const musicPath = await generateMusic(prompt, {
+        durationSeconds: Math.ceil(videoDuration),
+        genre: musicConfig.genre,
+        mood: musicConfig.mood,
+        tempo: musicConfig.tempo,
+        model: (musicConfig.lyriaModel as "lyria-2" | "lyria-3-clip" | "lyria-3-pro") ?? "lyria-2",
+      });
+
+      await addAudioToVideo(inputPath, musicPath, outputPath, 0.3);
+      return outputPath;
+    }
+
+    // ── Add Narration ─────────────────────────────────────────────────────
+    case "add-narration": {
+      const narrationConfig = config.narrationConfig;
+      if (!narrationConfig) return inputPath;
+
+      const narrationDir = "/tmp/narration";
+      await mkdir(narrationDir, { recursive: true });
+      const narrationPath = path.join(narrationDir, `pathc-narration-${jobId.slice(0, 8)}.mp3`);
+
+      await generateNarration(
+        narrationConfig.script,
+        narrationPath,
+        {
+          voiceId: narrationConfig.voiceId,
+          modelId: narrationConfig.model,
+        }
+      );
+
+      await addAudioToVideo(inputPath, narrationPath, outputPath, 0.9);
+      return outputPath;
+    }
+
+    // ── Add SFX ───────────────────────────────────────────────────────────
+    case "add-sfx": {
+      const sfxConfig = config.sfxConfig;
+      if (!sfxConfig) return inputPath;
+
+      const sfxDir = "/tmp/sfx";
+      await mkdir(sfxDir, { recursive: true });
+      const sfxPath = path.join(sfxDir, `pathc-sfx-${jobId.slice(0, 8)}.mp3`);
+
+      await generateSoundEffect(
+        sfxConfig.description,
+        sfxConfig.durationSeconds ?? 5,
+        sfxPath
+      );
+
+      await addAudioToVideo(inputPath, sfxPath, outputPath, 0.7);
+      return outputPath;
+    }
+
+    // ── Add Overlays ──────────────────────────────────────────────────────
+    case "add-overlays": {
+      const overlayConfig = config.overlayConfig;
+      if (!overlayConfig) return inputPath;
+
+      // Upload source video for Remotion access
+      const sourceKey = generateKey(jobId, `source-overlay${path.extname(inputPath) || ".mp4"}`);
+      const sourceVideoUrl = await uploadFile(inputPath, sourceKey);
+
+      // Build overlay text content for CaptionedVideo (reuse as overlay renderer)
+      // Create synthetic captions from overlay config
+      const overlaySegments: CaptionSegment[] = [];
+      const videoDuration = await getVideoDurationFFprobe(inputPath);
+      const durationMs = videoDuration * 1000;
+
+      if (overlayConfig.titleText) {
+        overlaySegments.push({
+          text: overlayConfig.titleText,
+          startMs: 0,
+          endMs: Math.min(5000, durationMs),
+        });
+      }
+
+      if (overlayConfig.lowerThirdText) {
+        overlaySegments.push({
+          text: overlayConfig.lowerThirdText,
+          startMs: 2000,
+          endMs: Math.min(durationMs - 2000, durationMs),
+        });
+      }
+
+      if (overlayConfig.endCardCta) {
+        overlaySegments.push({
+          text: overlayConfig.endCardCta,
+          startMs: Math.max(0, durationMs - 5000),
+          endMs: durationMs,
+        });
+      }
+
+      if (overlaySegments.length === 0) {
+        console.log("[PathC] No overlay content to apply — skipping");
+        return inputPath;
+      }
+
+      // Render with CaptionedVideo composition (repurposed for overlays)
+      await renderCaptionedVideo(sourceVideoUrl, overlaySegments, outputPath);
+      return outputPath;
+    }
+
+    // ── Full Edit (handled by the caller loop) ────────────────────────────
+    case "full-edit": {
+      // This case should not be reached since full-edit is expanded in processPathCJob
+      return inputPath;
+    }
+
+    default: {
+      console.warn(`[PathC] Unknown action: ${action} — skipping`);
+      return inputPath;
+    }
+  }
+}
+
+/**
+ * Format an edit action name for display.
+ */
+function formatActionName(action: EditAction): string {
+  const names: Record<EditAction, string> = {
+    "add-captions": "Adding captions",
+    "remove-silence": "Removing silence",
+    "remove-filler": "Removing filler words",
+    "add-music": "Adding background music",
+    "add-narration": "Adding narration",
+    "add-sfx": "Adding sound effects",
+    "add-overlays": "Adding text overlays",
+    "full-edit": "Full edit suite",
+  };
+  return names[action] ?? action;
 }
